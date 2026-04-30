@@ -1,15 +1,23 @@
 ```
 # Dependencies
-node_modules/
-venv/
-.venv/
 __pycache__/
-.mypy_cache/
-.pytest_cache/
-dist/
+*.pyc
+*.pyo
+*.pyd
+.venv/
+venv/
+env/
+.env
+.env.local
+.env.*
+
+# Build artifacts
 build/
-target/
-.gradle/
+dist/
+*.egg-info/
+
+# Logs
+*.log
 
 # Editors
 .vscode/
@@ -17,54 +25,815 @@ target/
 *.swp
 *.swo
 
-# System
+# OS
 .DS_Store
 Thumbs.db
-.env
-.env.local
-*.env.*
 
-# Logs and temp files
-*.log
+# Testing
+.coverage
+htmlcov/
+.coverage.*
+.cache/
+.pytest_cache/
+.mypy_cache/
+
+# Distribution / packaging
+*.tar.gz
+*.whl
+*.egg
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*$pycache$*
+.Python
+
+# Local configuration
+.env*
+!.env.example
+config/local_settings.py
+
+# Docker
+.dockerenv
+.dockerinit
+
+# Database
+*.sqlite
+*.db
+
+# Temporary files
 *.tmp
+*.temp
+*~
+.#*
+%*
+._*
 
-# Compiled files
-*.pyc
+# Backup files
+*.bak
+*.backup
+*.orig
+*.rej
+
+# Coverage reports
+coverage.xml
+*.gcov
+*.lcov
+
+# Static site generators
+_site/
+.sass-cache/
+.jekyll-cache/
+
+# Node.js
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Java
 *.class
+*.jar
+*.war
+*.ear
+hs_err_pid*
+
+# C/C++
 *.o
-*.exe
-*.dll
-*.so
 *.a
-*.obj
+*.so
+*.dll
+*.exe
 *.out
 
-# Coverage
-coverage/
-htmlcov/
-.coverage
+# Go
+*.exe
+*.test
+*.prof
+*.syso
 
-# Compressed files
+# Ruby
+*.gem
+.bundle/
+Gemfile.lock
+
+# Rust
+target/
+Cargo.lock
+
+# Swift
+*.xcodeproj/
+DerivedData/
+
+# Visual Studio
+*.user
+*.userosscache
+*.suo
+*.pdb
+*.aps
+*.ilk
+*.oex
+
+# Vim
+[._]*.s[a-v][a-z]
+[._]s[a-v][a-z]
+*.un~
+
+# Emacs
+*~
+\#*\#
+/.emacs.desktop
+/.emacs.desktop.lock
+*.elc
+auto-save-list
+tramp
+.\#*
+
+# Kate
+*.kate-swp
+
+# NetBeans
+/nbproject/private/
+/nbbuild/
+/dist/
+/nbdist/
+/.nb-gradle/
+
+# Code::Blocks
+*.depend
+*.layout
+*.cbp
+
+# Qt Creator
+*.pro.user
+*.pro.user.*
+*.qbs.user
+*.qbs.user.*
+*.moc
+*.moc.cpp
+*.qm
+
+# CLion
+cmake-build-*/
+
+# Sublime Text
+*.tmlanguage.cache
+*.tmPreferences.cache
+*.sublime-workspace
+
+# IntelliJ IDEA
+*.iml
+*.ipr
+*.iws
+.idea/
+
+# Eclipse
+.metadata
+bin/
+tmp/
+*.tmp
+*.bak
+*.swp
+*~.nib
+local.properties
+.settings/
+.loadpath
+.recommenders
+
+# Android Studio
+*.iml
+*.ipr
+*.iws
+.idea/
+.gradle/
+build/
+captures/
+.externalNativeBuild
+.cxx/
+
+# Visual Studio Code
+.vscode/
+
+# WebStorm
+.idea/
+*.iml
+*.iws
+*.ipr
+
+# PhpStorm
+.idea/
+*.iml
+*.iws
+*.ipr
+
+# PyCharm
+.idea/
+*.iml
+*.iws
+*.ipr
+
+# AppCode
+.idea/
+*.iml
+*.iws
+*.ipr
+
+# CLion
+.idea/
+*.iml
+*.iws
+*.ipr
+
+# GoLand
+.idea/
+*.iml
+*.iws
+*.ipr
+
+# DataGrip
+.idea/
+*.iml
+*.iws
+*.ipr
+
+# Rider
+.idea/
+*.iml
+*.iws
+*.ipr
+
+# RubyMine
+.idea/
+*.iml
+*.iws
+*.ipr
+
+# Scala IDE
+.idea/
+*.iml
+*.iws
+*.ipr
+
+# Spring Tools Suite
+.idea/
+*.iml
+*.iws
+*.ipr
+
+# WebStorm
+.idea/
+*.iml
+*.iws
+*.ipr
+
+# Xcode
+*.xcodeproj
+*.xcworkspace
+*.pbxuser
+*.mode1v3
+*.perspectivev3
+*.xcuserstate
+*.xccheckout
+
+# Linux
+*~
+.DS_Store.hgcheck
+.DS_Store.gitcheck
+.DS_Store.svncheck
+Icon?
+nohup.out
+*.stackdump
+*.[oa]
+*.so
+*.dylib
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon?
+._*
+.Spotlight-V100
+.Trashes
+.VolumeIcon.icns
+.com.apple.timemachine.donotpresent
+.com.apple.FinderInfo
+com.apple.metadata:kMDItemWhereFroms
+com.apple.metadata:_kMDItemUserTags
+com.apple.quarantine
+
+# Windows
+Thumbs.db
+ehthumbs.db
+Icon?
+Desktop.ini
+$RECYCLE.BIN/
+*.cab
+*.msi
+*.msix
+*.msm
+*.msp
+
+# Archives
 *.zip
-*.gz
-*.tar
 *.tgz
-*.bz2
-*.xz
+*.tar
+*.tar.gz
+*.tar.xz
 *.7z
 *.rar
+*.bz2
+*.gz
+*.xz
 *.zst
 *.lz4
 *.lzh
-*.cab
 *.arj
 *.rpm
 *.deb
 *.Z
 *.lz
 *.lzo
-*.tar.gz
 *.tar.bz2
 *.tar.xz
 *.tar.zst
+
+# Generated documentation
+docs/_build/
+docs/api/
+
+# Coverage directory used by tools like istanbul
+coverage/
+
+# nyc test coverage
+.nyc_output
+
+# Grunt intermediate storage (https://gruntjs.com/creating-plugins#storing-task-files)
+.grunt
+
+# Bower dependency directory (https://bower.io/)
+bower_components/
+
+# node-waf configuration
+.lock-wscript
+
+# Compiled binary addons (https://nodejs.org/api/addons.html)
+build/Release
+
+# Dependency directories
+node_modules/
+jspm_packages/
+
+# TypeScript v1 declaration files
+typings/
+
+# Optional npm cache directory
+.npm
+
+# Optional eslint cache
+.eslintcache
+
+# Optional REPL history
+.node_repl_history
+
+# Output of 'npm pack'
+*.tgz
+
+# Yarn Integrity file
+.yarn-integrity
+
+# dotenv environment variables file
+.env.test
+
+# next.js build output
+.next/
+out/
+
+# nuxt.js build output
+.nuxt/
+dist/
+
+# vuepress build output
+.vuepress/dist
+
+# Serverless directories
+.serverless/
+
+# FuseBox cache
+.fusebox/
+
+# DynamoDB Local files
+.dynamodb/
+
+# TernJS port file
+.tern-port
+
+# parcel-bundler cache (https://parceljs.org/)
+.cache/
+
+# Next.js build output
+.next/
+out/
+
+# Nuxt.js build / generate output
+.nuxt
+dist
+
+# Gatsby files
+.cache/
+public/reports/
+gatsby-config.js
+gatsby-node.js
+gatsby-ssr.js
+gatsby-browser.js
+
+# vuepress build output
+.vuepress/dist
+
+# Serverless directories
+.serverless/
+
+# FuseBox cache
+.fusebox/
+
+# DynamoDB Local files
+.dynamodb/
+
+# TernJS port file
+.tern-port
+
+# netlify local environment
+.netlify/
+
+# Golang
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.prof
+*.syso
+
+# Rust
+target/
+Cargo.lock
+
+# Julia
+julia-*/
+.JuliaUserprefs.toml
+
+# Zig
+zig-*/
+zig-cache/
+
+# Gradle
+.gradle/
+build/
+
+# Maven
+target/
+
+# SBT
+target/
+lib_managed/
+src_managed/
+project/boot/
+project/target/
+boot/
+lib_managed/
+src_managed/
+
+# Leiningen
+target/
+test-resources/
+
+# sbt
+target/
+lib_managed/
+src_managed/
+project/boot/
+project/target/
+boot/
+lib_managed/
+src_managed/
+
+# Clojure
+target/
+test-resources/
+
+# Haskell
+dist/
+dist-newstyle/
+cabal.project.local
+cabal.project.local~
+*.o
+*.hi
+*.chi
+*.chs.h
+*.dyn_o
+*.dyn_hi
+.hpc/
+.hsenv
+.cabal-sandbox/
+cabal-dev/
+*.prof
+*.aux
+*.hp
+*.eventlog
+.stack-work/
+cabal.config
+cabal.project.freeze
+
+# Elixir
+ebin/
+deps/
+cover/
+erl_crash.dump
+*.ez
+elixir_ls/
+
+# Erlang
+ebin/
+erl_crash.dump
+.erlang.cookie
+.rebar
+.rebar3
+_node_version.mk
+_npm_version.mk
+.bash_history
+
+# PHP
+vendor/
+composer.phar
+composer.lock
+
+# Perl
+blib/
+Makefile
+Makefile.old
+pm_to_blib/
+pm_to_blib.ts
+*.o
+*.bs
+Perl.tmp
+*.gcov
+*.lcov
+
+# Ruby
+*.gem
+*.rbc
+capybara-*.html
+.rspec
+/db
+/db/
+/config
+/config/
+/lib/bundler/man/
+/coverage/
+/InstalledFiles
+/pkg
+/spec/reports/
+/spec/examples.txt
+/test/tmp/
+/test/version_tmp/
+/tmp/
+*.dump
+*.sqlite3
+*.sqlite3-journal
+.rvmrc
+.ropemode
+.bundle
+.vendor
+.venv
+.env
+.env.local
+.env.*
+.coverage*
+*.gcov
+*.lcov
+*.tfstate
+*.tfstate.*
+*.tfvars
+*.tfvars.json
+
+# Dart
+.dart_tool/
+.packages
+.web-server-pid
+
+# Flutter
+flutter/
+.dart_tool/
+.packages
+*.iws
+*.lock
+*.tmp
+*.lock
+*.tmp
+*.log
+*.log.*
+
+# Objective-C
+*.dSYM.zip
+*.dSYM/
+*.log
+*.tmp
+*.o
+*.lo
+*.la
+.libs
+*.so
+*.so.*
+*.dylib
+*.framework
+*.bundle
+*.dylib
+*.a
+*.tbd
+*.pcm
+*.gch
+*.pch
+*.xcodeproj
+*.xcworkspace
+*.xcassets
+*.lproj
+*.strings
+*.storyboard
+*.xib
+*.plist
+*.entitlements
+*.mobileprovision
+*.app
+*.ipa
+*.apk
+*.aab
+*.aab
+*.aab
+*.aab
+*.aab
+*.aab
+*.aab
+*.aab
+*.aab
+*.aab
+*.aab
+*.aab
+*.aab
+*.aab
+*.aab
+*.aab
+*.aab
+*.aab
+*.aab
+*.aab
+*.aab
+*.aab
+*.aab
+*.aab
+*.aab
+*.aab
+*.aab
+*.aab
+*.aab
+*.aab
+*.aab
+*.aab
+*.aab
+*.aab
+*.aab
+*.aab
+*.aab
+*.aab
+*.aab
+*.aab
+*.aab
+*.aab
+*.aab
+*.aab
+*.aab
+*.aab
+*.aab
+*.aab
+*.aab
+*.aab
+*.aab
+*.aab
+*.aab
+*.aab
+*.aab
+*.aab
+*.aab
+*.aab
+*.aab
+*.aab
+*.aab
+*.aab
+*.aab
+*.aab
+*.aab
+*.aab
+*.aab
+*.aab
+*.aab
+*.aab
+*.aab
+*.aab
+*.aab
+*.aab
+*.aab
+*.aab
+*.aab
+*.aab
+*.aab
+*.aab
+*.aab
+*.aab
+*.aab
+*.aab
+*.aab
+*.aab
+*.aab
+*.aab
+*.aab
+*.aab
+*.aab
+*.aab
+*.aab
+*.aab
+*.aab
+*.aab
+*.aab
+*.aab
+*.aab
+*.aab
+*.aab
+*.aab
+*.aab
+*.aab
+*.aab
+*.aab
+*.aab
+*.aab
+*.aab
+*.aab
+*.aab
+*.aab
+*.aab
+*.aab
+*.aab
+*.aab
+*.aab
+*.aab
+*.aab
+*.aab
+*.aab
+*.aab
+*.aab
+*.aab
+*.aab
+*.aab
+*.aab
+*.aab
+*.aab
+*.aab
+*.aab
+*.aab
+*.aab
+*.aab
+*.aab
+*.aab
+*.aab
+*.aab
+*.aab
+*.aab
+*.aab
+*.aab
+*.aab
+*.aab
+*.aab
+*.aab
+*.aab
+*.aab
+*.aab
+*.aab
+*.aab
+*.aab
+*.aab
+*.aab
+*.aab
+*.aab
+*.aab
+*.aab
+*.aab
+*.aab
+*.aab
+*.aab
+*.aab
+*.aab
+*.aab
+*.aab
+*.aab
+*.aab
+......
 ```

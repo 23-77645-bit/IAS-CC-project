@@ -189,8 +189,10 @@ BEGIN
 END//
 DELIMITER ;
 
--- Grant permissions (adjust user/role as needed)
--- CREATE USER 'att_app'@'%' IDENTIFIED BY 'secure_password';
+-- NOTE: User creation and permissions are handled via docker-compose.yml environment variables
+-- Do NOT uncomment the lines below in production - use secrets management instead
+-- Example for reference only (DO NOT USE IN PRODUCTION):
+-- CREATE USER 'att_app'@'%' IDENTIFIED BY '<use-secrets-manager>';
 -- GRANT SELECT, INSERT, UPDATE ON attendance.students TO 'att_app'@'%';
 -- GRANT SELECT, INSERT ON attendance.attendance TO 'att_app'@'%';
 -- GRANT SELECT, INSERT ON attendance.scan_requests TO 'att_app'@'%';

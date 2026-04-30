@@ -37,7 +37,7 @@ services:
       - DB_PORT=3306
       - DB_NAME=attendance
       - DB_USER=att_app
-      - DB_PASSWORD=${DB_PASSWORD:-SecurePassword123!}
+      - DB_PASSWORD=${DB_PASSWORD:-SecurePassword123}
       - PYTHONUNBUFFERED=1
     depends_on:
       database:
@@ -64,10 +64,10 @@ services:
     ports:
       - "3306:3306"
     environment:
-      - MYSQL_ROOT_PASSWORD=${MYSQL_ROOT_PASSWORD:-RootSecurePassword123!}
+      - MYSQL_ROOT_PASSWORD=${MYSQL_ROOT_PASSWORD:-RootSecurePassword123}
       - MYSQL_DATABASE=attendance
       - MYSQL_USER=att_app
-      - MYSQL_PASSWORD=${DB_PASSWORD:-SecurePassword123!}
+      - MYSQL_PASSWORD=${DB_PASSWORD:-SecurePassword123}
     volumes:
       - db_data:/var/lib/mysql
       - ./database/schema.sql:/docker-entrypoint-initdb.d/schema.sql:ro
@@ -76,7 +76,7 @@ services:
       - attendance-network
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${MYSQL_ROOT_PASSWORD:-RootSecurePassword123!}"]
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "--password=${MYSQL_ROOT_PASSWORD:-RootSecurePassword123}"]
       interval: 30s
       timeout: 10s
       retries: 5
