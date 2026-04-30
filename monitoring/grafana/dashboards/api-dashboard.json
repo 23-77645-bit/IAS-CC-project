@@ -1,0 +1,160 @@
+{
+  "dashboard": {
+    "id": null,
+    "uid": "attendance-api",
+    "title": "Attendance API Dashboard",
+    "tags": ["attendance", "api"],
+    "timezone": "browser",
+    "schemaVersion": 16,
+    "version": 0,
+    "refresh": "10s",
+    "panels": [
+      {
+        "id": 1,
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0},
+        "type": "graph",
+        "title": "API Request Rate",
+        "targets": [
+          {
+            "expr": "rate(api_requests_total[5m])",
+            "legendFormat": "{{method}} {{endpoint}}",
+            "refId": "A"
+          }
+        ],
+        "yaxes": [
+          {"label": "Requests/sec", "show": true},
+          {"show": true}
+        ]
+      },
+      {
+        "id": 2,
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0},
+        "type": "graph",
+        "title": "API Latency (seconds)",
+        "targets": [
+          {
+            "expr": "histogram_quantile(0.95, rate(api_request_latency_seconds_bucket[5m]))",
+            "legendFormat": "p95",
+            "refId": "A"
+          },
+          {
+            "expr": "histogram_quantile(0.50, rate(api_request_latency_seconds_bucket[5m]))",
+            "legendFormat": "p50",
+            "refId": "B"
+          }
+        ],
+        "yaxes": [
+          {"label": "Latency (s)", "show": true},
+          {"show": true}
+        ]
+      },
+      {
+        "id": 3,
+        "gridPos": {"h": 8, "w": 8, "x": 0, "y": 8},
+        "type": "stat",
+        "title": "Successful Scans",
+        "targets": [
+          {
+            "expr": "sum(scans_success_total)",
+            "legendFormat": "Total Success",
+            "refId": "A"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "color": {"mode": "thresholds"},
+            "thresholds": {
+              "steps": [
+                {"color": "green", "value": null}
+              ]
+            }
+          }
+        }
+      },
+      {
+        "id": 4,
+        "gridPos": {"h": 8, "w": 8, "x": 8, "y": 8},
+        "type": "stat",
+        "title": "Failed Scans",
+        "targets": [
+          {
+            "expr": "sum(scans_failure_total)",
+            "legendFormat": "Total Failures",
+            "refId": "A"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "color": {"mode": "thresholds"},
+            "thresholds": {
+              "steps": [
+                {"color": "red", "value": null}
+              ]
+            }
+          }
+        }
+      },
+      {
+        "id": 5,
+        "gridPos": {"h": 8, "w": 8, "x": 16, "y": 8},
+        "type": "stat",
+        "title": "Active DB Connections",
+        "targets": [
+          {
+            "expr": "db_connections_active",
+            "legendFormat": "Connections",
+            "refId": "A"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "color": {"mode": "thresholds"},
+            "thresholds": {
+              "steps": [
+                {"color": "green", "value": null},
+                {"color": "yellow", "value": 15},
+                {"color": "red", "value": 18}
+              ]
+            },
+            "max": 20
+          }
+        }
+      },
+      {
+        "id": 6,
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 16},
+        "type": "piechart",
+        "title": "Scan Outcomes",
+        "targets": [
+          {
+            "expr": "sum by (reason) (scans_failure_total)",
+            "legendFormat": "{{reason}}",
+            "refId": "A"
+          }
+        ]
+      },
+      {
+        "id": 7,
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 16},
+        "type": "graph",
+        "title": "Error Rate",
+        "targets": [
+          {
+            "expr": "rate(api_requests_total{status=~\"5..\"}[5m])",
+            "legendFormat": "Server Errors",
+            "refId": "A"
+          },
+          {
+            "expr": "rate(api_requests_total{status=~\"4..\"}[5m])",
+            "legendFormat": "Client Errors",
+            "refId": "B"
+          }
+        ],
+        "yaxes": [
+          {"label": "Errors/sec", "show": true},
+          {"show": true}
+        ]
+      }
+    ]
+  }
+}
