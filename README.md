@@ -29,12 +29,33 @@ See individual component folders for details.
 
 ## 🏃 Quick Start
 
+### Option 1: GitHub Codespaces (Recommended)
+
+This project is fully configured for GitHub Codespaces:
+
+1. Click the green "Code" button on GitHub
+2. Select "Create codespace on main"
+3. Wait for the container to build (~2-3 minutes)
+4. Access services via port forwarding:
+   - **Frontend**: Port 3000
+   - **Backend API**: Port 8000
+   - **Prometheus**: Port 9090
+   - **Grafana**: Port 3001
+
+See [GitHub Codespaces Setup Guide](docs/GITHUB_CODESPACES_SETUP.md) for detailed instructions.
+
+### Option 2: Local Development
+
 ```bash
 export DB_PASSWORD=your_secure_password
 docker-compose up -d
 ```
 
-Access: http://localhost
+Access:
+- Frontend: http://localhost:3000
+- Backend API: http://localhost:8000
+- Prometheus: http://localhost:9090
+- Grafana: http://localhost:3001
 
 ## 📖 Documentation
 

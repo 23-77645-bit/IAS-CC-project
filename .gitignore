@@ -4,19 +4,12 @@ node_modules/
 venv/
 .venv/
 __pycache__/
-*.pyc
-.pytest_cache/
 .mypy_cache/
-
-# Build artifacts
+.pytest_cache/
 dist/
 build/
 target/
-
-# Environment
-.env
-.env.local
-*.env.*
+.gradle/
 
 # Editors
 .vscode/
@@ -24,12 +17,32 @@ target/
 *.swp
 *.swo
 
-# Logs
-*.log
-
-# OS
+# System
 .DS_Store
 Thumbs.db
+.env
+.env.local
+*.env.*
+
+# Logs and temp files
+*.log
+*.tmp
+
+# Compiled files
+*.pyc
+*.class
+*.o
+*.exe
+*.dll
+*.so
+*.a
+*.obj
+*.out
+
+# Coverage
+coverage/
+htmlcov/
+.coverage
 
 # Compressed files
 *.zip
