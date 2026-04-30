@@ -1,0 +1,291 @@
+pipeline {
+    agent any
+    
+    tools {
+        maven 'Maven 3.9'
+        nodejs 'Node.js 18'
+    }
+    
+    environment {
+        DOCKER_REGISTRY = 'registry.example.com'
+        IMAGE_VERSION = "main-${BUILD_NUMBER}-${GIT_COMMIT.take(7)}"
+        DB_PASSWORD = credentials('db-password')
+        MYSQL_ROOT_PASSWORD = credentials('mysql-root-password')
+    }
+    
+    triggers {
+        pollSCM('*/5 * * * *')
+        githubPush()
+    }
+    
+    stages {
+        stage('Checkout') {
+            steps {
+                checkout scm
+                echo "Building commit: ${GIT_COMMIT}"
+            }
+        }
+        
+        stage('Install Dependencies') {
+            parallel {
+                stage('Frontend Dependencies') {
+                    steps {
+                        dir('frontend') {
+                            sh 'npm ci'
+                        }
+                    }
+                }
+                stage('Backend Dependencies') {
+                    steps {
+                        dir('backend') {
+                            sh 'pip install -r requirements.txt'
+                        }
+                    }
+                }
+            }
+        }
+        
+        stage('Code Quality') {
+            parallel {
+                stage('Frontend Lint') {
+                    steps {
+                        dir('frontend') {
+                            sh 'npm run lint || true'
+                        }
+                    }
+                }
+                stage('Backend Type Check') {
+                    steps {
+                        dir('backend') {
+                            sh 'python -m py_compile main.py || true'
+                        }
+                    }
+                }
+            }
+        }
+        
+        stage('Unit Tests') {
+            parallel {
+                stage('Frontend Tests') {
+                    steps {
+                        dir('frontend') {
+                            sh 'npm test || true'
+                        }
+                    }
+                }
+                stage('Backend Tests') {
+                    steps {
+                        dir('backend') {
+                            sh '''
+                                python -m pytest tests/ \
+                                    --junitxml=test-results.xml \
+                                    --cov=. \
+                                    --cov-report=html \
+                                    || true
+                            '''
+                        }
+                    }
+                }
+            }
+            post {
+                always {
+                    junit 'backend/test-results.xml'
+                    publishHTML([
+                        allowMissing: false,
+                        alwaysLinkToLastBuild: true,
+                        keepAll: true,
+                        reportDir: 'backend/htmlcov',
+                        reportFiles: 'index.html',
+                        reportName: 'Backend Coverage Report'
+                    ])
+                }
+            }
+        }
+        
+        stage('Integration Tests') {
+            steps {
+                script {
+                    // Start services for integration testing
+                    sh '''
+                        export DB_PASSWORD=testpassword
+                        export MYSQL_ROOT_PASSWORD=rootpassword
+                        docker-compose -f docker-compose.yml up -d database backend
+                        sleep 30
+                    '''
+                }
+                
+                sh '''
+                    # Run integration tests against running containers
+                    curl -f http://localhost:8080/health || exit 1
+                    curl -f http://localhost:8080/metrics || exit 1
+                '''
+            }
+            post {
+                always {
+                    sh 'docker-compose down'
+                }
+            }
+        }
+        
+        stage('Build Docker Images') {
+            steps {
+                script {
+                    def frontendImage = "${DOCKER_REGISTRY}/attendance-frontend:${IMAGE_VERSION}"
+                    def backendImage = "${DOCKER_REGISTRY}/attendance-backend:${IMAGE_VERSION}"
+                    
+                    echo "Building images with version: ${IMAGE_VERSION}"
+                    
+                    sh "docker build -t ${frontendImage} ./frontend"
+                    sh "docker build -t ${backendImage} ./backend"
+                    
+                    // Tag as latest for main branch
+                    if (env.BRANCH_NAME == 'main') {
+                        sh "docker tag ${frontendImage} ${DOCKER_REGISTRY}/attendance-frontend:latest"
+                        sh "docker tag ${backendImage} ${DOCKER_REGISTRY}/attendance-backend:latest"
+                    }
+                }
+            }
+        }
+        
+        stage('Security Scan') {
+            steps {
+                script {
+                    // Install Trivy if not available
+                    sh '''
+                        if ! command -v trivy &> /dev/null; then
+                            echo "Installing Trivy..."
+                            curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /usr/local/bin
+                        fi
+                    '''
+                    
+                    sh "trivy image --severity HIGH,CRITICAL --exit-code 1 ${DOCKER_REGISTRY}/attendance-frontend:${IMAGE_VERSION} || true"
+                    sh "trivy image --severity HIGH,CRITICAL --exit-code 1 ${DOCKER_REGISTRY}/attendance-backend:${IMAGE_VERSION} || true"
+                }
+            }
+        }
+        
+        stage('Push to Registry') {
+            when {
+                branch 'main'
+            }
+            steps {
+                script {
+                    withDockerRegistry([credentialsId: 'docker-registry-creds', url: "https://${DOCKER_REGISTRY}"]) {
+                        sh "docker push ${DOCKER_REGISTRY}/attendance-frontend:${IMAGE_VERSION}"
+                        sh "docker push ${DOCKER_REGISTRY}/attendance-backend:${IMAGE_VERSION}"
+                        
+                        if (env.BRANCH_NAME == 'main') {
+                            sh "docker push ${DOCKER_REGISTRY}/attendance-frontend:latest"
+                            sh "docker push ${DOCKER_REGISTRY}/attendance-backend:latest"
+                        }
+                    }
+                }
+            }
+        }
+        
+        stage('Deploy to Staging') {
+            when {
+                branch 'main'
+            }
+            steps {
+                script {
+                    // Deploy to staging environment
+                    sshagent(['staging-server-creds']) {
+                        sh '''
+                            ssh -o StrictHostKeyChecking=no user@staging-server << EOF
+                                cd /opt/attendance-system
+                                git pull origin main
+                                
+                                export DB_PASSWORD=${DB_PASSWORD}
+                                export MYSQL_ROOT_PASSWORD=${MYSQL_ROOT_PASSWORD}
+                                export DOCKER_REGISTRY=${DOCKER_REGISTRY}
+                                export IMAGE_VERSION=${IMAGE_VERSION}
+                                
+                                docker-compose pull
+                                docker-compose up -d
+                                
+                                # Wait for health checks
+                                sleep 30
+                                curl -f http://localhost:80/health || exit 1
+                                curl -f http://localhost:8080/health || exit 1
+                            EOF
+                        '''
+                    }
+                }
+            }
+        }
+        
+        stage('Deploy to Production') {
+            when {
+                allOf {
+                    branch 'main'
+                    expression { currentBuild.result == null || currentBuild.result == 'SUCCESS' }
+                }
+            }
+            input {
+                message "Deploy to production?"
+                ok "Deploy"
+                parameters {
+                    string(name: 'CONFIRMATION', defaultValue: 'yes', description: 'Type yes to confirm')
+                }
+            }
+            steps {
+                script {
+                    if (params.CONFIRMATION != 'yes') {
+                        error "Deployment cancelled by user"
+                    }
+                    
+                    sshagent(['production-server-creds']) {
+                        sh '''
+                            ssh -o StrictHostKeyChecking=no user@production-server << EOF
+                                cd /opt/attendance-system
+                                git pull origin main
+                                
+                                export DB_PASSWORD=${DB_PASSWORD}
+                                export MYSQL_ROOT_PASSWORD=${MYSQL_ROOT_PASSWORD}
+                                export DOCKER_REGISTRY=${DOCKER_REGISTRY}
+                                export IMAGE_VERSION=${IMAGE_VERSION}
+                                
+                                # Backup database
+                                docker exec attendance-database mysqldump -u root -p${MYSQL_ROOT_PASSWORD} attendance > /backups/attendance-\$(date +%Y%m%d-%H%M%S).sql
+                                
+                                docker-compose pull
+                                docker-compose up -d
+                                
+                                # Wait for health checks
+                                sleep 30
+                                curl -f http://localhost:80/health || exit 1
+                                curl -f http://localhost:8080/health || exit 1
+                            EOF
+                        '''
+                    }
+                }
+            }
+        }
+    }
+    
+    post {
+        always {
+            cleanWs()
+            sh 'docker system prune -f'
+        }
+        success {
+            echo "Pipeline completed successfully! Version: ${IMAGE_VERSION}"
+            // Send success notification
+            mail(
+                to: 'team@example.com',
+                subject: "SUCCESS: Attendance System Build #${BUILD_NUMBER}",
+                body: "Build #${BUILD_NUMBER} completed successfully.\n\nVersion: ${IMAGE_VERSION}\nCommit: ${GIT_COMMIT}\nJob: ${BUILD_URL}"
+            )
+        }
+        failure {
+            echo "Pipeline failed!"
+            // Send failure notification
+            mail(
+                to: 'team@example.com',
+                subject: "FAILURE: Attendance System Build #${BUILD_NUMBER}",
+                body: "Build #${BUILD_NUMBER} failed.\n\nPlease check: ${BUILD_URL}\n\nVersion: ${IMAGE_VERSION}\nCommit: ${GIT_COMMIT}"
+            )
+        }
+    }
+}
