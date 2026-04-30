@@ -7,6 +7,8 @@ import os
 import time
 import uuid
 import logging
+import hmac
+import hashlib
 from datetime import datetime, timedelta
 from typing import Optional, List
 from contextlib import asynccontextmanager
@@ -53,6 +55,10 @@ DB_PORT = int(os.getenv('DB_PORT', 3306))
 DB_NAME = os.getenv('DB_NAME', 'attendance')
 DB_USER = os.getenv('DB_USER', 'att_app')
 DB_PASSWORD = os.getenv('DB_PASSWORD', 'secure_password')
+
+# Security configuration
+SECRET_KEY = os.getenv('SECRET_KEY', 'academic-demo-key-change-in-production')
+LATE_THRESHOLD_MINUTES = int(os.getenv('LATE_THRESHOLD_MINUTES', '15'))
 
 DATABASE_URL = f"mysql+pymysql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
 
@@ -170,12 +176,16 @@ app = FastAPI(
 )
 
 # CORS middleware
+# For academic/demo purposes, allow all origins
+# In production, restrict to specific domains
+ALLOWED_ORIGINS = os.getenv('ALLOWED_ORIGINS', 'http://localhost:3000,http://localhost:8000').split(',')
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Configure appropriately for production
+    allow_origins=ALLOWED_ORIGINS,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "OPTIONS"],
+    allow_headers=["Content-Type", "Authorization", "X-Request-ID"],
 )
 
 
@@ -215,22 +225,38 @@ def validate_qr_signature(data: dict) -> bool:
     """
     Validate QR code signature if present.
     Returns True if no signature required or signature is valid.
+    Uses HMAC-SHA256 for academic demonstration purposes.
     """
     if 'signature' not in data:
-        return True  # No signature required
+        # For academic purposes, accept unsigned QR codes but log it
+        logger.info("QR code without signature - accepting for demo")
+        return True
     
-    # Implement signature validation logic here
-    # This is a placeholder for actual cryptographic verification
     try:
         signature = data.get('signature')
-        payload = data.get('payload')
+        # Remove signature from payload for hashing
+        payload_data = {k: v for k, v in data.items() if k != 'signature'}
+        payload_str = json.dumps(payload_data, sort_keys=True)
         
-        # Add your signature verification logic here
-        # For example, verify with public key
+        # Generate expected signature using HMAC-SHA256
+        expected_signature = hmac.new(
+            SECRET_KEY.encode('utf-8'),
+            payload_str.encode('utf-8'),
+            hashlib.sha256
+        ).hexdigest()
         
-        return True
+        # Constant-time comparison to prevent timing attacks
+        is_valid = hmac.compare_digest(signature, expected_signature)
+        
+        if not is_valid:
+            logger.warning(f"Invalid signature detected. Expected: {expected_signature[:16]}..., Got: {signature[:16]}...")
+            SCAN_FAILURE.labels(reason="invalid_signature").inc()
+        
+        return is_valid
+        
     except Exception as e:
-        logger.error(f"Signature validation failed: {e}")
+        logger.error(f"Signature validation error: {e}")
+        SCAN_FAILURE.labels(reason="signature_error").inc()
         return False
 
 
@@ -268,6 +294,7 @@ async def metrics_endpoint():
 @app.post("/scan", response_model=ScanResponseModel)
 async def scan_qr(
     request_data: ScanRequestModel,
+    request: Request,
     db: Session = Depends(get_db)
 ):
     """
@@ -406,31 +433,49 @@ async def scan_qr(
             timestamp=datetime.utcnow().isoformat() + "Z"
         )
     
-    # Record attendance as present
-    # TODO: Add late threshold logic based on session start time
+    # Determine attendance status (present or late)
+    # Late threshold is configurable via environment variable
+    current_time = datetime.utcnow()
+    
+    # Check if session has a scheduled start time in the future/past
+    # For academic demo, we'll use a simple heuristic:
+    # If scan is more than LATE_THRESHOLD_MINUTES after the hour, mark as late
+    # In production, this would compare against actual session start times
+    minutes_past_hour = current_time.minute + (current_time.second / 60.0)
+    
+    if minutes_past_hour > LATE_THRESHOLD_MINUTES:
+        status = 'late'
+        notes = f"Scanned {int(minutes_past_hour)} minutes past the hour (threshold: {LATE_THRESHOLD_MINUTES} min)"
+        logger.info(f"Student {student.id} marked as LATE")
+    else:
+        status = 'present'
+        notes = None
+        logger.info(f"Student {student.id} marked as PRESENT")
+    
     attendance_record = Attendance(
         student_id=student.id,
-        status='present',
+        status=status,
         source_device=request_data.device_id,
-        session_id=request_data.session_id
+        session_id=request_data.session_id,
+        notes=notes
     )
     db.add(attendance_record)
     
     scan_record = ScanRequest(
         request_id=request_id,
         student_id=student.id,
-        response_status='present'
+        response_status=status
     )
     db.add(scan_record)
     db.commit()
     
     SCAN_SUCCESS.inc()
-    logger.info(f"Attendance recorded for student {student.id}: {student.name}")
+    logger.info(f"Attendance recorded for student {student.id}: {student.name} (status: {status})")
     
     return ScanResponseModel(
         success=True,
         student=StudentInfo(id=student.id, name=student.name, program=student.program),
-        status="present",
+        status=status,
         reason_code="SUCCESS",
         timestamp=datetime.utcnow().isoformat() + "Z"
     )
