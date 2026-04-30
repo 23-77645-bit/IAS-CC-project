@@ -66,14 +66,41 @@ class TestSignatureValidation:
         assert validate_qr_signature(data) is True
     
     def test_validate_with_signature(self):
-        """Test signature validation placeholder."""
+        """Test signature validation with invalid signature."""
         from main import validate_qr_signature
         
         data = {
-            "payload": {"qr_id": "QR001-STU-2024"},
+            "qr_id": "QR001-STU-2024",
             "signature": "fake_signature"
         }
-        # Currently returns True as placeholder
+        # Should return False for invalid signature
+        assert validate_qr_signature(data) is False
+    
+    def test_validate_with_valid_signature(self):
+        """Test signature validation with valid HMAC signature."""
+        from main import validate_qr_signature
+        import hmac
+        import hashlib
+        import json
+        import os
+        
+        qr_id = "QR001-STU-2024"
+        payload_data = {"qr_id": qr_id}
+        payload_str = json.dumps(payload_data, sort_keys=True)
+        
+        # Generate valid signature using same SECRET_KEY as in main.py
+        secret_key = os.getenv('SECRET_KEY', 'academic-demo-secret-key-change-in-production')
+        valid_signature = hmac.new(
+            secret_key.encode('utf-8'),
+            payload_str.encode('utf-8'),
+            hashlib.sha256
+        ).hexdigest()
+        
+        data = {
+            "qr_id": qr_id,
+            "signature": valid_signature
+        }
+        # Should return True for valid signature
         assert validate_qr_signature(data) is True
 
 
@@ -109,12 +136,18 @@ class TestScanEndpoint:
             mock_db = MagicMock()
             mock_session.return_value = mock_db
             
-            # No existing request (idempotency check passes)
-            mock_db.query().filter().first.side_effect = [
-                None,  # No existing scan request
-                mock_student,  # Student found
-                None,  # No recent attendance (not duplicate)
-            ]
+            # Mock query chain properly for all calls
+            mock_query = MagicMock()
+            mock_filter = MagicMock()
+            
+            # Setup the side_effect to handle multiple query().filter().first() calls
+            # Call 1: idempotency check (None)
+            # Call 2: student lookup (mock_student)
+            # Call 3: duplicate check (None)
+            # Call 4: config lookup (None - use default)
+            mock_filter.first.side_effect = [None, mock_student, None, None]
+            mock_query.filter.return_value = mock_filter
+            mock_db.query.return_value = mock_query
             
             response = client.post(
                 "/scan",

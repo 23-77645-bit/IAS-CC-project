@@ -7,6 +7,8 @@ import os
 import time
 import uuid
 import logging
+import hmac
+import hashlib
 from datetime import datetime, timedelta
 from typing import Optional, List
 from contextlib import asynccontextmanager
@@ -14,8 +16,6 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException, Depends, Request, status
 from fastapi.responses import JSONResponse, Response
 from fastapi.middleware.cors import CORSMiddleware
-from slowapi import SlowRateLimiter, _rate_limit_exceeded_handler
-from slowapi.errors import RateLimitExceeded
 from pydantic import BaseModel, Field
 from sqlalchemy import create_engine, Column, Integer, String, Boolean, DateTime, Enum, Text, BIGINT, JSON
 from sqlalchemy.orm import sessionmaker, Session, declarative_base
@@ -175,17 +175,6 @@ app = FastAPI(
     lifespan=lifespan
 )
 
-# Rate limiting setup - prevent scan flooding
-# Configurable via environment variables
-RATE_LIMIT_PER_MINUTE = int(os.getenv('RATE_LIMIT_PER_MINUTE', '60'))
-limiter = SlowRateLimiter(
-    key_func=lambda request: request.client.host if request.client else "unknown",
-    default_limits=[f"{RATE_LIMIT_PER_MINUTE}/minute"],
-    storage_uri="memory://"
-)
-app.state.limiter = limiter
-app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
-
 # CORS middleware
 # For academic/demo purposes, allow all origins
 # In production, restrict to specific domains
@@ -303,7 +292,6 @@ async def metrics_endpoint():
 
 
 @app.post("/scan", response_model=ScanResponseModel)
-@limiter.limit(f"{RATE_LIMIT_PER_MINUTE}/minute")
 async def scan_qr(
     request_data: ScanRequestModel,
     request: Request,

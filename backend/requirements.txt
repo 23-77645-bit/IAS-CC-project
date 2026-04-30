@@ -10,4 +10,3 @@ python-jose[cryptography]==3.3.0
 httpx==0.26.0
 pytest==7.4.4
 pytest-asyncio==0.23.3
-slowapi==0.1.9
