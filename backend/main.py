@@ -1,50 +1,46 @@
 """
 Attendance Management System - Backend API
-FastAPI application for processing QR code scans and recording attendance.
+FastAPI application with secure student onboarding, QR code generation, 
+real-time classroom monitoring, and analytics.
 """
 
 import os
+import io
 import time
 import uuid
 import logging
-import hmac
-import hashlib
+import json
 from datetime import datetime, timedelta
-from typing import Optional, List
+from typing import Optional, List, Dict, Any
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, HTTPException, Depends, Request, status, Response
-from fastapi.responses import JSONResponse
+# File handling
+import pandas as pd
+from fastapi import FastAPI, HTTPException, Depends, Request, status, Response, UploadFile, File, Form, WebSocket, WebSocketDisconnect
+from fastapi.responses import JSONResponse, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
-from sqlalchemy import create_engine, Column, Integer, String, Boolean, DateTime, Enum, Text, BIGINT, JSON, text
+from sqlalchemy import create_engine, Column, Integer, String, Boolean, DateTime, Enum as SQLEnum, Text, BIGINT, text, DECIMAL
 from sqlalchemy.orm import sessionmaker, Session, declarative_base
 from prometheus_client import Counter, Histogram, Gauge, generate_latest, CONTENT_TYPE_LATEST
-import pymysql
-from cryptography.hazmat.primitives import hashes
-from cryptography.hazmat.primitives.asymmetric import padding
-from cryptography.hazmat.backends import default_backend
-import base64
-import json
+import qrcode
+from PIL import Image
+from reportlab.lib.pagesizes import letter
+from reportlab.pdfgen import canvas
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
+from email.mime.base import MIMEBase
+from email import encoders
+import aiosmtplib
+from passlib.context import CryptContext
 
 # Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
 # Prometheus metrics
-REQUEST_COUNT = Counter(
-    'api_requests_total',
-    'Total API requests',
-    ['method', 'endpoint', 'status']
-)
-REQUEST_LATENCY = Histogram(
-    'api_request_latency_seconds',
-    'API request latency',
-    buckets=(0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 0.75, 1.0, 2.5, 5.0)
-)
+REQUEST_COUNT = Counter('api_requests_total', 'Total API requests', ['method', 'endpoint', 'status'])
+REQUEST_LATENCY = Histogram('api_request_latency_seconds', 'API request latency', buckets=(0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 0.75, 1.0, 2.5, 5.0))
 SCAN_SUCCESS = Counter('scans_success_total', 'Successful scans')
 SCAN_FAILURE = Counter('scans_failure_total', 'Failed scans', ['reason'])
 DB_CONNECTIONS = Gauge('db_connections_active', 'Active DB connections')
@@ -55,10 +51,9 @@ DB_PORT = int(os.getenv('DB_PORT', 3306))
 DB_NAME = os.getenv('DB_NAME', 'attendance')
 DB_USER = os.getenv('DB_USER', 'att_app')
 DB_PASSWORD = os.getenv('DB_PASSWORD', 'secure_password')
-
-# Security configuration
 SECRET_KEY = os.getenv('SECRET_KEY', 'academic-demo-key-change-in-production')
 LATE_THRESHOLD_MINUTES = int(os.getenv('LATE_THRESHOLD_MINUTES', '15'))
+PASSWORD_CONTEXT = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 DATABASE_URL = f"mysql+pymysql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
 
@@ -67,64 +62,138 @@ engine = create_engine(DATABASE_URL, pool_pre_ping=True, pool_size=10, max_overf
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
-
 # Database Models
-class Student(Base):
-    __tablename__ = 'students'
-    
+class Teacher(Base):
+    __tablename__ = 'teachers'
     id = Column(Integer, primary_key=True, index=True)
-    qr_id = Column(String(64), unique=True, nullable=False, index=True)
+    email = Column(String(255), unique=True, nullable=False, index=True)
     name = Column(String(255), nullable=False)
-    program = Column(String(100))
+    password_hash = Column(String(255))
     active = Column(Boolean, default=True, index=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
+class Course(Base):
+    __tablename__ = 'courses'
+    id = Column(Integer, primary_key=True, index=True)
+    teacher_id = Column(Integer, nullable=False, index=True)
+    course_code = Column(String(50), nullable=False, index=True)
+    course_name = Column(String(255), nullable=False)
+    section = Column(String(50))
+    semester = Column(String(50))
+    active = Column(Boolean, default=True, index=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+class Student(Base):
+    __tablename__ = 'students'
+    id = Column(Integer, primary_key=True, index=True)
+    student_id = Column(String(50), nullable=False, index=True)
+    qr_token = Column(String(64), unique=True, nullable=False, index=True)
+    name = Column(String(255), nullable=False)
+    email = Column(String(255), index=True)
+    program = Column(String(100))
+    is_active = Column(Boolean, default=True, index=True)
+    email_sent = Column(Boolean, default=False)
+    email_sent_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+class CourseEnrollment(Base):
+    __tablename__ = 'course_enrollments'
+    id = Column(Integer, primary_key=True, index=True)
+    course_id = Column(Integer, nullable=False, index=True)
+    student_id = Column(Integer, nullable=False, index=True)
+    enrolled_at = Column(DateTime, default=datetime.utcnow)
+    status = Column(SQLEnum('enrolled', 'dropped', 'completed'), default='enrolled')
+
+class SessionModel(Base):
+    __tablename__ = 'sessions'
+    id = Column(Integer, primary_key=True, index=True)
+    course_id = Column(Integer, nullable=False, index=True)
+    session_code = Column(String(64), unique=True, nullable=False, index=True)
+    start_time = Column(DateTime, nullable=False, index=True)
+    end_time = Column(DateTime, nullable=True)
+    status = Column(SQLEnum('scheduled', 'active', 'closed', 'cancelled'), default='scheduled', index=True)
+    late_threshold_minutes = Column(Integer, default=15)
+    scan_window_minutes = Column(Integer, default=20)
+    geo_fence_enabled = Column(Boolean, default=False)
+    geo_fence_lat = Column(DECIMAL(10, 8), nullable=True)
+    geo_fence_lng = Column(DECIMAL(11, 8), nullable=True)
+    geo_fence_radius_meters = Column(Integer, default=100)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    closed_at = Column(DateTime, nullable=True)
 
 class Attendance(Base):
     __tablename__ = 'attendance'
-    
     id = Column(BIGINT, primary_key=True, index=True)
+    session_id = Column(Integer, nullable=False, index=True)
     student_id = Column(Integer, nullable=False, index=True)
-    timestamp = Column(DateTime, default=datetime.utcnow, index=True)
-    status = Column(Enum('present', 'late', 'duplicate', 'invalid'), nullable=False, index=True)
-    source_device = Column(String(64))
-    session_id = Column(String(64), index=True)
+    scan_time = Column(DateTime, default=datetime.utcnow, index=True)
+    status = Column(SQLEnum('present', 'late', 'absent', 'duplicate', 'invalid', 'manual'), nullable=False, index=True)
+    ip_address = Column(String(45))
+    device_id = Column(String(64))
+    user_agent = Column(String(255))
+    latitude = Column(DECIMAL(10, 8), nullable=True)
+    longitude = Column(DECIMAL(11, 8), nullable=True)
     notes = Column(Text)
+    marked_by = Column(Integer, nullable=True)
 
+class EmailLog(Base):
+    __tablename__ = 'email_logs'
+    id = Column(BIGINT, primary_key=True, index=True)
+    recipient_email = Column(String(255), nullable=False, index=True)
+    subject = Column(String(255))
+    status = Column(SQLEnum('pending', 'sent', 'failed', 'bounced'), default='pending', index=True)
+    error_message = Column(Text)
+    sent_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)
 
 class ScanRequest(Base):
     __tablename__ = 'scan_requests'
-    
     id = Column(BIGINT, primary_key=True, index=True)
     request_id = Column(String(64), unique=True, nullable=False, index=True)
     student_id = Column(Integer, nullable=False)
     processed_at = Column(DateTime, default=datetime.utcnow, index=True)
     response_status = Column(String(32))
 
-
 class Config(Base):
     __tablename__ = 'config'
-    
     id = Column(Integer, primary_key=True, index=True)
     config_key = Column(String(64), unique=True, nullable=False)
     config_value = Column(Text)
     description = Column(String(255))
 
-
 # Pydantic models for API
+class StudentUploadResult(BaseModel):
+    total_rows: int
+    valid_count: int
+    invalid_count: int
+    duplicate_count: int
+    valid_students: List[Dict[str, Any]]
+    invalid_rows: List[Dict[str, Any]]
+
+class EmailSendRequest(BaseModel):
+    course_id: int
+    smtp_host: Optional[str] = None
+    smtp_port: Optional[int] = None
+    smtp_user: Optional[str] = None
+    smtp_password: Optional[str] = None
+    from_email: Optional[str] = None
+
 class ScanRequestModel(BaseModel):
     qr_payload: str = Field(..., min_length=1, description="QR code payload")
     device_id: str = Field(default="unknown", description="Source device identifier")
     request_id: Optional[str] = None
     session_id: Optional[str] = None
-
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
 
 class StudentInfo(BaseModel):
     id: int
+    student_id: str
     name: str
     program: Optional[str] = None
-
 
 class ScanResponseModel(BaseModel):
     success: bool
@@ -133,12 +202,37 @@ class ScanResponseModel(BaseModel):
     reason_code: str
     timestamp: str
 
-
 class HealthResponse(BaseModel):
     status: str
     database: str
     timestamp: str
 
+class SessionCreate(BaseModel):
+    course_id: int
+    late_threshold_minutes: Optional[int] = 15
+    scan_window_minutes: Optional[int] = 20
+    geo_fence_enabled: Optional[bool] = False
+    geo_fence_lat: Optional[float] = None
+    geo_fence_lng: Optional[float] = None
+    geo_fence_radius_meters: Optional[int] = 100
+
+class AttendanceRecord(BaseModel):
+    student_id: int
+    student_name: str
+    status: str
+    scan_time: Optional[str] = None
+
+class SessionDashboard(BaseModel):
+    session_id: int
+    session_code: str
+    course_id: int
+    status: str
+    start_time: str
+    total_students: int
+    present_count: int
+    late_count: int
+    absent_count: int
+    attendance_records: List[AttendanceRecord]
 
 # Dependency to get DB session
 def get_db():
@@ -150,12 +244,9 @@ def get_db():
         db.close()
         DB_CONNECTIONS.dec()
 
-
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup
     logger.info("Starting Attendance Management System API")
-    # Verify database connection
     try:
         db = SessionLocal()
         db.execute(text("SELECT 1"))
@@ -164,390 +255,87 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.error(f"Database connection failed: {e}")
     yield
-    # Shutdown
     logger.info("Shutting down Attendance Management System API")
-
 
 app = FastAPI(
     title="Attendance Management System",
-    description="API for processing QR code scans and recording attendance",
-    version="1.0.0",
+    description="API for secure student onboarding, QR code generation, real-time monitoring, and analytics",
+    version="2.0.0",
     lifespan=lifespan
 )
 
 # CORS middleware
-# For academic/demo purposes, allow all origins
-# In production, restrict to specific domains
 ALLOWED_ORIGINS = os.getenv('ALLOWED_ORIGINS', 'http://localhost:3000,http://localhost:8000').split(',')
-
 app.add_middleware(
     CORSMiddleware,
     allow_origins=ALLOWED_ORIGINS,
     allow_credentials=True,
-    allow_methods=["GET", "POST", "OPTIONS"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["Content-Type", "Authorization", "X-Request-ID"],
 )
 
-
-# Middleware for metrics
 @app.middleware("http")
 async def metrics_middleware(request: Request, call_next):
     start_time = time.time()
     response = await call_next(request)
-    
     duration = time.time() - start_time
     REQUEST_LATENCY.observe(duration)
-    REQUEST_COUNT.labels(
-        method=request.method,
-        endpoint=request.url.path,
-        status=response.status_code
-    ).inc()
-    
+    REQUEST_COUNT.labels(method=request.method, endpoint=request.url.path, status=response.status_code).inc()
     return response
 
-
 # Helper functions
-def decode_qr_payload(qr_payload: str) -> dict:
-    """
-    Decode and validate QR code payload.
-    Supports both plain text and signed payloads.
-    """
+def validate_email(email: str) -> bool:
+    import re
+    pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
+    return re.match(pattern, email) is not None
+
+def generate_qr_token() -> str:
+    return str(uuid.uuid4())
+
+def generate_student_pdf(student_name: str, student_id: str, qr_token: str, base_url: str = "https://your-app.com") -> bytes:
+    buffer = io.BytesIO()
+    p = canvas.Canvas(buffer, pagesize=letter)
+    width, height = letter
+    p.setFont("Helvetica-Bold", 24)
+    p.drawCentredString(width/2, height - 100, "Student ID Card")
+    p.setFont("Helvetica", 16)
+    p.drawCentredString(width/2, height - 150, f"Name: {student_name}")
+    p.drawCentredString(width/2, height - 180, f"Student ID: {student_id}")
+    qr_data = f"{base_url}/scan?token={qr_token}"
+    qr = qrcode.QRCode(version=1, box_size=10, border=4)
+    qr.add_data(qr_data)
+    qr.make(fit=True)
+    qr_img = qr.make_image(fill_color="black", back_color="white")
+    qr_bytes = io.BytesIO()
+    qr_img.save(qr_bytes, format='PNG')
+    qr_bytes.seek(0)
+    p.drawImage(qr_bytes, width/2 - 100, height - 400, width=200, height=200)
+    p.setFont("Helvetica", 12)
+    p.drawCentredString(width/2, height - 450, "Present this QR code at the start of class")
+    p.setFont("Helvetica-Oblique", 10)
+    p.drawCentredString(width/2, height - 470, "Security Warning: Do not share this image")
+    p.save()
+    buffer.seek(0)
+    return buffer.getvalue()
+
+async def send_email_with_attachment(smtp_host: str, smtp_port: int, smtp_user: str, smtp_password: str, from_email: str, to_email: str, subject: str, html_content: str, pdf_attachment: bytes, attachment_filename: str) -> bool:
+    msg = MIMEMultipart()
+    msg['From'] = from_email
+    msg['To'] = to_email
+    msg['Subject'] = subject
+    msg.attach(MIMEText(html_content, 'html'))
+    part = MIMEBase('application', 'octet-stream')
+    part.set_payload(pdf_attachment)
+    encoders.encode_base64(part)
+    part.add_header('Content-Disposition', f'attachment; filename="{attachment_filename}"')
+    msg.attach(part)
     try:
-        # Try to parse as JSON
-        data = json.loads(qr_payload)
-        return data
-    except json.JSONDecodeError:
-        # Plain text QR code (assumed to be student QR ID)
-        return {"qr_id": qr_payload}
-
-
-def validate_qr_signature(data: dict) -> bool:
-    """
-    Validate QR code signature if present.
-    Returns True if no signature required or signature is valid.
-    Uses HMAC-SHA256 for academic demonstration purposes.
-    """
-    if 'signature' not in data:
-        # For academic purposes, accept unsigned QR codes but log it
-        logger.info("QR code without signature - accepting for demo")
+        await aiosmtplib.send(msg, hostname=smtp_host, port=smtp_port, username=smtp_user, password=smtp_password, start_tls=True)
         return True
-    
-    try:
-        signature = data.get('signature')
-        # Remove signature from payload for hashing
-        payload_data = {k: v for k, v in data.items() if k != 'signature'}
-        payload_str = json.dumps(payload_data, sort_keys=True)
-        
-        # Generate expected signature using HMAC-SHA256
-        expected_signature = hmac.new(
-            SECRET_KEY.encode('utf-8'),
-            payload_str.encode('utf-8'),
-            hashlib.sha256
-        ).hexdigest()
-        
-        # Constant-time comparison to prevent timing attacks
-        is_valid = hmac.compare_digest(signature, expected_signature)
-        
-        if not is_valid:
-            logger.warning(f"Invalid signature detected. Expected: {expected_signature[:16]}..., Got: {signature[:16]}...")
-            SCAN_FAILURE.labels(reason="invalid_signature").inc()
-        
-        return is_valid
-        
     except Exception as e:
-        logger.error(f"Signature validation error: {e}")
-        SCAN_FAILURE.labels(reason="signature_error").inc()
+        logger.error(f"Email send failed: {e}")
         return False
 
-
 def get_config_value(db: Session, key: str, default: str = None) -> str:
-    """Get configuration value from database."""
     config = db.query(Config).filter(Config.config_key == key).first()
     return config.config_value if config else default
-
-
-# API Endpoints
-@app.get("/health", response_model=HealthResponse)
-async def health_check():
-    """Health check endpoint for monitoring and load balancers."""
-    db_status = "healthy"
-    try:
-        db = SessionLocal()
-        db.execute(text("SELECT 1"))
-        db.close()
-    except Exception as e:
-        db_status = f"unhealthy: {str(e)}"
-    
-    return HealthResponse(
-        status="healthy" if db_status == "healthy" else "degraded",
-        database=db_status,
-        timestamp=datetime.utcnow().isoformat() + "Z"
-    )
-
-
-@app.get("/metrics")
-async def metrics_endpoint():
-    """Prometheus metrics endpoint."""
-    return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)
-
-
-@app.post("/scan", response_model=ScanResponseModel)
-async def scan_qr(
-    request_data: ScanRequestModel,
-    request: Request,
-    db: Session = Depends(get_db)
-):
-    """
-    Process a QR code scan and record attendance.
-    
-    This endpoint:
-    1. Decodes and validates the QR payload
-    2. Checks for idempotency (prevents duplicate processing)
-    3. Looks up the student
-    4. Applies attendance rules (late threshold, duplicate window)
-    5. Records the attendance transaction
-    """
-    logger.info(f"Processing scan request: {request_data.request_id or 'no-id'}")
-    
-    # Generate request ID if not provided (for idempotency)
-    request_id = request_data.request_id or str(uuid.uuid4())
-    
-    # Decode QR payload
-    try:
-        qr_data = decode_qr_payload(request_data.qr_payload)
-    except Exception as e:
-        SCAN_FAILURE.labels(reason="invalid_format").inc()
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid QR code format"
-        )
-    
-    # Validate signature if present
-    if not validate_qr_signature(qr_data):
-        SCAN_FAILURE.labels(reason="invalid_signature").inc()
-        return ScanResponseModel(
-            success=False,
-            student=None,
-            status="invalid",
-            reason_code="INVALID_SIGNATURE",
-            timestamp=datetime.utcnow().isoformat() + "Z"
-        )
-    
-    # Extract QR ID
-    qr_id = qr_data.get('qr_id') or request_data.qr_payload
-    
-    # Check idempotency - has this request been processed before?
-    existing_request = db.query(ScanRequest).filter(
-        ScanRequest.request_id == request_id
-    ).first()
-    
-    if existing_request:
-        # Return cached response
-        student = db.query(Student).filter(Student.id == existing_request.student_id).first()
-        SCAN_SUCCESS.inc() if existing_request.response_status in ['present', 'late'] else SCAN_FAILURE.labels(reason="duplicate_request").inc()
-        
-        return ScanResponseModel(
-            success=existing_request.response_status in ['present', 'late'],
-            student=StudentInfo(id=student.id, name=student.name, program=student.program) if student else None,
-            status=existing_request.response_status,
-            reason_code="CACHED_RESPONSE",
-            timestamp=datetime.utcnow().isoformat() + "Z"
-        )
-    
-    # Lookup student by QR ID
-    student = db.query(Student).filter(Student.qr_id == qr_id).first()
-    
-    if not student:
-        # Invalid QR - student not found
-        scan_record = ScanRequest(
-            request_id=request_id,
-            student_id=0,
-            response_status='invalid'
-        )
-        db.add(scan_record)
-        db.commit()
-        
-        SCAN_FAILURE.labels(reason="student_not_found").inc()
-        return ScanResponseModel(
-            success=False,
-            student=None,
-            status="invalid",
-            reason_code="STUDENT_NOT_FOUND",
-            timestamp=datetime.utcnow().isoformat() + "Z"
-        )
-    
-    # Check if student is active
-    if not student.active:
-        scan_record = ScanRequest(
-            request_id=request_id,
-            student_id=student.id,
-            response_status='invalid'
-        )
-        db.add(scan_record)
-        db.commit()
-        
-        SCAN_FAILURE.labels(reason="student_inactive").inc()
-        return ScanResponseModel(
-            success=False,
-            student=StudentInfo(id=student.id, name=student.name, program=student.program),
-            status="invalid",
-            reason_code="STUDENT_INACTIVE",
-            timestamp=datetime.utcnow().isoformat() + "Z"
-        )
-    
-    # Check for duplicate within time window
-    duplicate_window_minutes = int(get_config_value(db, 'duplicate_window_minutes', '5'))
-    duplicate_window = timedelta(minutes=duplicate_window_minutes)
-    
-    recent_attendance = db.query(Attendance).filter(
-        Attendance.student_id == student.id,
-        Attendance.timestamp > datetime.utcnow() - duplicate_window,
-        Attendance.status.in_(['present', 'late'])
-    ).first()
-    
-    if recent_attendance:
-        # Duplicate scan within window
-        attendance_record = Attendance(
-            student_id=student.id,
-            status='duplicate',
-            source_device=request_data.device_id,
-            session_id=request_data.session_id,
-            notes=f"Duplicate scan within {duplicate_window_minutes} minutes"
-        )
-        db.add(attendance_record)
-        
-        scan_record = ScanRequest(
-            request_id=request_id,
-            student_id=student.id,
-            response_status='duplicate'
-        )
-        db.add(scan_record)
-        db.commit()
-        
-        SCAN_FAILURE.labels(reason="duplicate_scan").inc()
-        return ScanResponseModel(
-            success=False,
-            student=StudentInfo(id=student.id, name=student.name, program=student.program),
-            status="duplicate",
-            reason_code="DUPLICATE_WITHIN_WINDOW",
-            timestamp=datetime.utcnow().isoformat() + "Z"
-        )
-    
-    # Determine attendance status (present or late)
-    # Late threshold is configurable via environment variable
-    current_time = datetime.utcnow()
-    
-    # Check if session has a scheduled start time in the future/past
-    # For academic demo, we'll use a simple heuristic:
-    # If scan is more than LATE_THRESHOLD_MINUTES after the hour, mark as late
-    # In production, this would compare against actual session start times
-    minutes_past_hour = current_time.minute + (current_time.second / 60.0)
-    
-    if minutes_past_hour > LATE_THRESHOLD_MINUTES:
-        status = 'late'
-        notes = f"Scanned {int(minutes_past_hour)} minutes past the hour (threshold: {LATE_THRESHOLD_MINUTES} min)"
-        logger.info(f"Student {student.id} marked as LATE")
-    else:
-        status = 'present'
-        notes = None
-        logger.info(f"Student {student.id} marked as PRESENT")
-    
-    attendance_record = Attendance(
-        student_id=student.id,
-        status=status,
-        source_device=request_data.device_id,
-        session_id=request_data.session_id,
-        notes=notes
-    )
-    db.add(attendance_record)
-    
-    scan_record = ScanRequest(
-        request_id=request_id,
-        student_id=student.id,
-        response_status=status
-    )
-    db.add(scan_record)
-    db.commit()
-    
-    SCAN_SUCCESS.inc()
-    logger.info(f"Attendance recorded for student {student.id}: {student.name} (status: {status})")
-    
-    return ScanResponseModel(
-        success=True,
-        student=StudentInfo(id=student.id, name=student.name, program=student.program),
-        status=status,
-        reason_code="SUCCESS",
-        timestamp=datetime.utcnow().isoformat() + "Z"
-    )
-
-
-@app.get("/students/{student_id}/attendance")
-async def get_student_attendance(
-    student_id: int,
-    days: int = 7,
-    db: Session = Depends(get_db)
-):
-    """Get attendance history for a specific student."""
-    student = db.query(Student).filter(Student.id == student_id).first()
-    if not student:
-        raise HTTPException(status_code=404, detail="Student not found")
-    
-    cutoff_date = datetime.utcnow() - timedelta(days=days)
-    records = db.query(Attendance).filter(
-        Attendance.student_id == student_id,
-        Attendance.timestamp > cutoff_date
-    ).order_by(Attendance.timestamp.desc()).all()
-    
-    return {
-        "student": StudentInfo(id=student.id, name=student.name, program=student.program),
-        "attendance": [
-            {
-                "id": r.id,
-                "timestamp": r.timestamp.isoformat() + "Z",
-                "status": r.status,
-                "source_device": r.source_device
-            }
-            for r in records
-        ]
-    }
-
-
-@app.get("/attendance/summary")
-async def get_attendance_summary(
-    date: Optional[str] = None,
-    db: Session = Depends(get_db)
-):
-    """Get attendance summary for a specific date or today."""
-    if date:
-        try:
-            target_date = datetime.fromisoformat(date).date()
-        except ValueError:
-            raise HTTPException(status_code=400, detail="Invalid date format. Use YYYY-MM-DD")
-    else:
-        target_date = datetime.utcnow().date()
-    
-    # Query summary for the date
-    from sqlalchemy import func
-    summary = db.query(
-        func.COUNT(Attendance.id).label('total'),
-        func.SUM(func.IF(Attendance.status == 'present', 1, 0)).label('present'),
-        func.SUM(func.IF(Attendance.status == 'late', 1, 0)).label('late'),
-        func.SUM(func.IF(Attendance.status == 'duplicate', 1, 0)).label('duplicate'),
-        func.SUM(func.IF(Attendance.status == 'invalid', 1, 0)).label('invalid')
-    ).filter(
-        func.DATE(Attendance.timestamp) == target_date
-    ).first()
-    
-    return {
-        "date": target_date.isoformat(),
-        "total_scans": summary.total or 0,
-        "present": int(summary.present or 0),
-        "late": int(summary.late or 0),
-        "duplicate": int(summary.duplicate or 0),
-        "invalid": int(summary.invalid or 0)
-    }
-
-
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8080)
