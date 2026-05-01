@@ -2,11 +2,28 @@
 # Dependencies
 node_modules/
 
-# Editors
-.vscode/
+# Logs and temp files
+*.log
+*.tmp
 
 # Environment
 .env
 .env.local
 *.env.*
+
+# Editors
+.vscode/
+.idea/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+venv/
+.venv/
+.env
+.env.local
+.env.*
 ```
