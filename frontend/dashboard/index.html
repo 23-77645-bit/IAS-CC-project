@@ -11,45 +11,108 @@
         <header class="header">
             <h1>Dashboard</h1>
             <nav class="nav">
-                <a href="#" class="nav-link active">Overview</a>
-                <a href="#" class="nav-link">Analytics</a>
-                <a href="#" class="nav-link">Settings</a>
+                <a href="#" class="nav-link active" data-section="overview">Overview</a>
+                <a href="#" class="nav-link" data-section="students">Students</a>
+                <a href="#" class="nav-link" data-section="courses">Courses</a>
             </nav>
         </header>
 
         <main class="content">
-            <div class="stats-grid">
-                <div class="stat-card">
-                    <h3>Total Users</h3>
-                    <p class="stat-value" id="total-users">0</p>
+            <!-- Overview Section -->
+            <section id="overview-section" class="section active-section">
+                <div class="stats-grid">
+                    <div class="stat-card">
+                        <h3>Total Students</h3>
+                        <p class="stat-value" id="total-students">0</p>
+                    </div>
+                    <div class="stat-card">
+                        <h3>Total Courses</h3>
+                        <p class="stat-value" id="total-courses">0</p>
+                    </div>
+                    <div class="stat-card">
+                        <h3>Active Sessions</h3>
+                        <p class="stat-value" id="active-sessions">0</p>
+                    </div>
+                    <div class="stat-card">
+                        <h3>Growth</h3>
+                        <p class="stat-value" id="growth">0%</p>
+                    </div>
                 </div>
-                <div class="stat-card">
-                    <h3>Active Sessions</h3>
-                    <p class="stat-value" id="active-sessions">0</p>
-                </div>
-                <div class="stat-card">
-                    <h3>Revenue</h3>
-                    <p class="stat-value" id="revenue">$0</p>
-                </div>
-                <div class="stat-card">
-                    <h3>Growth</h3>
-                    <p class="stat-value" id="growth">0%</p>
-                </div>
-            </div>
 
-            <div class="charts-section">
-                <div class="chart-card">
-                    <h3>Activity Overview</h3>
-                    <canvas id="activity-chart"></canvas>
+                <div class="charts-section">
+                    <div class="chart-card">
+                        <h3>Activity Overview</h3>
+                        <canvas id="activity-chart"></canvas>
+                    </div>
+                    <div class="chart-card">
+                        <h3>Recent Activity</h3>
+                        <ul class="activity-list" id="activity-list">
+                            <li>Loading...</li>
+                        </ul>
+                    </div>
                 </div>
-                <div class="chart-card">
-                    <h3>Recent Activity</h3>
-                    <ul class="activity-list" id="activity-list">
-                        <li>Loading...</li>
-                    </ul>
+            </section>
+
+            <!-- Students Section -->
+            <section id="students-section" class="section">
+                <div class="section-header">
+                    <h2>Student Management</h2>
+                    <button id="add-student-btn" class="btn btn-primary">+ Add Student</button>
                 </div>
-            </div>
+                <div class="table-container">
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>ID</th>
+                                <th>Name</th>
+                                <th>Email</th>
+                                <th>Course</th>
+                                <th>Status</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="students-table-body">
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+
+            <!-- Courses Section -->
+            <section id="courses-section" class="section">
+                <div class="section-header">
+                    <h2>Course Management</h2>
+                    <button id="add-course-btn" class="btn btn-primary">+ Add Course</button>
+                </div>
+                <div class="table-container">
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>ID</th>
+                                <th>Course Name</th>
+                                <th>Instructor</th>
+                                <th>Students</th>
+                                <th>Status</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="courses-table-body">
+                        </tbody>
+                    </table>
+                </div>
+            </section>
         </main>
+    </div>
+
+    <!-- Modal for adding/editing -->
+    <div id="modal" class="modal">
+        <div class="modal-content">
+            <span class="modal-close">&times;</span>
+            <h3 id="modal-title">Add Item</h3>
+            <form id="modal-form">
+                <div id="modal-fields"></div>
+                <button type="submit" class="btn btn-primary">Save</button>
+            </form>
+        </div>
     </div>
 
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
