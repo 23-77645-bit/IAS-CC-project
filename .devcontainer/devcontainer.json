@@ -1,19 +1,14 @@
 {
   "name": "Attendance Management System",
-  "dockerComposeFile": "../docker-compose.yml",
-  "service": "backend",
-  "workspaceFolder": "/workspace",
-  "shutdownAction": "stopCompose",
+  "image": "mcr.microsoft.com/devcontainers/python:3.11",
+  "workspaceFolder": "/workspaces/${localWorkspaceFolderBasename}",
   "features": {
     "ghcr.io/devcontainers/features/docker-in-docker:2": {},
     "ghcr.io/devcontainers/features/node:1": {
       "version": "18"
-    },
-    "ghcr.io/devcontainers/features/python:1": {
-      "version": "3.11"
     }
   },
-  "forwardPorts": [8000, 3000, 9090, 3001],
+  "forwardPorts": [8000, 3000, 9090, 3001, 3306],
   "portsAttributes": {
     "8000": {
       "label": "Backend API"
@@ -26,6 +21,9 @@
     },
     "3001": {
       "label": "Grafana"
+    },
+    "3306": {
+      "label": "MySQL Database"
     }
   },
   "customizations": {
@@ -47,5 +45,5 @@
     }
   },
   "postCreateCommand": "pip install -r backend/requirements.txt && cd frontend && npm install",
-  "remoteUser": "root"
+  "remoteUser": "vscode"
 }
