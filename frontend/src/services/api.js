@@ -263,3 +263,26 @@ export async function createStudent(studentData) {
   
   return res.json();
 }
+
+/**
+ * Upload students from CSV/Excel file
+ * POST /api/teacher/students/upload
+ * @param {File} file - The file to upload
+ */
+export async function uploadStudents(file) {
+  const formData = new FormData();
+  formData.append('file', file);
+  
+  const res = await fetch(`${API_BASE_URL}/teacher/students/upload`, {
+    method: 'POST',
+    headers: { 'X-Teacher-ID': '1' },
+    body: formData
+  });
+  
+  if (!res.ok) {
+    const error = await res.json().catch(() => ({ detail: 'Failed to upload students' }));
+    throw new Error(error.detail || 'Failed to upload students');
+  }
+  
+  return res.json();
+}

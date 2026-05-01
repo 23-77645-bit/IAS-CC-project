@@ -13,7 +13,7 @@ from datetime import datetime, timedelta
 from typing import Optional, List
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, HTTPException, Depends, Request, status, Response
+from fastapi import FastAPI, HTTPException, Depends, Request, status, Response, UploadFile, File
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
@@ -225,11 +225,10 @@ class CourseCreate(BaseModel):
 
 class CourseOut(BaseModel):
     id: int
-    name: str
-    code: str
+    course_name: str
+    course_code: str
     teacher_id: int
     semester: Optional[str] = None
-    description: Optional[str] = None
     
     class Config:
         from_attributes = True
@@ -1009,8 +1008,10 @@ async def update_course(course_id: int, course_update: CourseCreate, db: Session
     if not db_course:
         raise HTTPException(status_code=404, detail="Course not found")
     
-    for key, value in course_update.dict().items():
-        setattr(db_course, key, value)
+    # Map frontend field names to database column names
+    db_course.course_name = course_update.name
+    db_course.course_code = course_update.code
+    db_course.semester = course_update.semester
     
     db.commit()
     db.refresh(db_course)
@@ -1094,6 +1095,102 @@ async def delete_student(student_id: int, db: Session = Depends(get_db), current
     db.delete(db_student)
     db.commit()
     return {"message": "Student deleted"}
+
+# --- Student Bulk Upload ---
+@app.post("/teacher/students/upload", tags=["Students"])
+async def upload_students(
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_teacher)
+):
+    """Upload students from CSV or Excel file"""
+    import csv
+    import io
+    import uuid
+    
+    try:
+        contents = await file.read()
+        
+        # Determine file type and parse accordingly
+        if file.filename.endswith('.csv'):
+            # Parse CSV
+            decoded = contents.decode('utf-8')
+            reader = csv.DictReader(io.StringIO(decoded))
+            students_data = list(reader)
+        elif file.filename.endswith(('.xlsx', '.xls')):
+            # For Excel files, we'll require CSV format for simplicity
+            # In production, you could add pandas/openpyxl support
+            raise HTTPException(
+                status_code=400, 
+                detail="Excel files not supported. Please use CSV format."
+            )
+        else:
+            raise HTTPException(
+                status_code=400, 
+                detail="Unsupported file format. Please use CSV."
+            )
+        
+        if not students_data:
+            raise HTTPException(status_code=400, detail="No student data found in file")
+        
+        # Validate required columns
+        required_columns = ['student_id', 'name', 'email']
+        if not all(col in students_data[0] for col in required_columns):
+            raise HTTPException(
+                status_code=400, 
+                detail=f"Missing required columns. Required: {', '.join(required_columns)}"
+            )
+        
+        success_count = 0
+        error_count = 0
+        errors = []
+        
+        for idx, row in enumerate(students_data, start=2):  # Start at 2 (row 1 is header)
+            try:
+                # Check if student already exists
+                existing = db.query(Student).filter(
+                    Student.student_id == row['student_id'].strip()
+                ).first()
+                
+                if existing:
+                    errors.append(f"Row {idx}: Student ID '{row['student_id']}' already exists")
+                    error_count += 1
+                    continue
+                
+                # Create new student
+                qr_token = str(uuid.uuid4())
+                db_student = Student(
+                    student_id=row['student_id'].strip(),
+                    name=row['name'].strip(),
+                    email=row['email'].strip(),
+                    program=row.get('program', '').strip() if row.get('program') else None,
+                    qr_token=qr_token
+                )
+                db.add(db_student)
+                success_count += 1
+                
+            except Exception as e:
+                errors.append(f"Row {idx}: {str(e)}")
+                error_count += 1
+        
+        db.commit()
+        
+        result = {
+            "message": f"Uploaded {success_count} students successfully",
+            "count": success_count,
+            "errors": error_count,
+            "error_details": errors if errors else None
+        }
+        
+        return result
+        
+    except UnicodeDecodeError:
+        raise HTTPException(
+            status_code=400, 
+            detail="Invalid file encoding. Please ensure CSV is UTF-8 encoded."
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
 
 # --- Session CRUD ---
 @app.put("/teacher/sessions/{session_id}", tags=["Sessions"])
