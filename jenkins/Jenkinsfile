@@ -50,14 +50,14 @@ pipeline {
                 stage('Frontend Lint') {
                     steps {
                         dir('frontend') {
-                            sh 'npm run lint || true'
+                            sh 'npm run lint '
                         }
                     }
                 }
                 stage('Backend Type Check') {
                     steps {
                         dir('backend') {
-                            sh 'python -m py_compile main.py || true'
+                            sh 'python -m py_compile main.py '
                         }
                     }
                 }
@@ -69,7 +69,7 @@ pipeline {
                 stage('Frontend Tests') {
                     steps {
                         dir('frontend') {
-                            sh 'npm test || true'
+                            sh 'npm test '
                         }
                     }
                 }
@@ -81,7 +81,7 @@ pipeline {
                                     --junitxml=test-results.xml \
                                     --cov=. \
                                     --cov-report=html \
-                                    || true
+                                    
                             '''
                         }
                     }
@@ -158,8 +158,8 @@ pipeline {
                         fi
                     '''
                     
-                    sh "trivy image --severity HIGH,CRITICAL --exit-code 1 ${DOCKER_REGISTRY}/attendance-frontend:${IMAGE_VERSION} || true"
-                    sh "trivy image --severity HIGH,CRITICAL --exit-code 1 ${DOCKER_REGISTRY}/attendance-backend:${IMAGE_VERSION} || true"
+                    sh "trivy image --severity HIGH,CRITICAL --exit-code 1 ${DOCKER_REGISTRY}/attendance-frontend:${IMAGE_VERSION} "
+                    sh "trivy image --severity HIGH,CRITICAL --exit-code 1 ${DOCKER_REGISTRY}/attendance-backend:${IMAGE_VERSION} "
                 }
             }
         }

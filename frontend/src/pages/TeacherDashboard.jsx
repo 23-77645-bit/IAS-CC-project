@@ -9,7 +9,7 @@ import {
   markAttendance, 
   exportAttendanceCSV,
   subscribeToLiveUpdates 
-} from '../services/mockApi'
+} from '../services/api'
 
 /**
  * TeacherDashboard Component
