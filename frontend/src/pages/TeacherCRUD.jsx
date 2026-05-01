@@ -7,7 +7,8 @@ import {
   fetchStudents,
   createStudent,
   updateStudent,
-  deleteStudent
+  deleteStudent,
+  uploadStudents
 } from '../services/api'
 
 /**
@@ -29,6 +30,8 @@ function TeacherCRUD() {
   const [studentForm, setStudentForm] = useState({ student_id: '', name: '', email: '', program: '' })
   const [editingStudent, setEditingStudent] = useState(null)
   const [showStudentForm, setShowStudentForm] = useState(false)
+  const [showUploadForm, setShowUploadForm] = useState(false)
+  const [uploadFile, setUploadFile] = useState(null)
   
   // UI state
   const [loading, setLoading] = useState(false)
@@ -108,8 +111,8 @@ function TeacherCRUD() {
 
   const startEditCourse = (course) => {
     setCourseForm({ 
-      name: course.name || course.course_name, 
-      code: course.code || course.course_code, 
+      name: course.course_name, 
+      code: course.course_code, 
       semester: course.semester || '' 
     })
     setEditingCourse(course)
@@ -168,13 +171,35 @@ function TeacherCRUD() {
     setShowStudentForm(true)
   }
 
+  const handleFileUpload = async () => {
+    if (!uploadFile) {
+      setError('Please select a file to upload')
+      return
+    }
+    
+    try {
+      setLoading(true)
+      const result = await uploadStudents(uploadFile)
+      showSuccess(`✓ ${result.count || 'Students'} uploaded successfully`)
+      setUploadFile(null)
+      setShowUploadForm(false)
+      loadData()
+    } catch (err) {
+      setError('Failed to upload students: ' + err.message)
+    } finally {
+      setLoading(false)
+    }
+  }
+
   const cancelForm = () => {
     setEditingCourse(null)
     setEditingStudent(null)
     setCourseForm({ name: '', code: '', semester: '' })
     setStudentForm({ student_id: '', name: '', email: '', program: '' })
+    setUploadFile(null)
     setShowCourseForm(false)
     setShowStudentForm(false)
+    setShowUploadForm(false)
   }
 
   return (
@@ -300,8 +325,8 @@ function TeacherCRUD() {
                   <tbody>
                     {courses.map((course) => (
                       <tr key={course.id}>
-                        <td><strong>{course.course_code || course.code}</strong></td>
-                        <td>{course.course_name || course.name}</td>
+                        <td><strong>{course.course_code}</strong></td>
+                        <td>{course.course_name}</td>
                         <td>{course.semester || '—'}</td>
                         <td className="actions">
                           <button 
@@ -331,22 +356,35 @@ function TeacherCRUD() {
           <section className="crud-section">
             <div className="section-header">
               <h2>Student Management</h2>
-              <button 
-                className="btn-primary"
-                onClick={() => {
-                  setEditingStudent(null)
-                  setStudentForm({ student_id: '', name: '', email: '', program: '' })
-                  setShowStudentForm(!showStudentForm)
-                }}
-              >
-                {showStudentForm ? '✕ Cancel' : '+ Add Student'}
-              </button>
+              <div className="action-buttons">
+                <button 
+                  className="btn-primary"
+                  onClick={() => {
+                    setEditingStudent(null)
+                    setStudentForm({ student_id: '', name: '', email: '', program: '' })
+                    setShowStudentForm(!showStudentForm)
+                    setShowUploadForm(false)
+                  }}
+                >
+                  {showStudentForm ? '✕ Cancel' : '+ Add Student'}
+                </button>
+                <button 
+                  className="btn-secondary"
+                  onClick={() => {
+                    setUploadFile(null)
+                    setShowUploadForm(!showUploadForm)
+                    setShowStudentForm(false)
+                  }}
+                >
+                  {showUploadForm ? '✕ Cancel' : '📁 Upload File'}
+                </button>
+              </div>
             </div>
 
-            {/* Student Form */}
+            {/* Manual Student Form */}
             {showStudentForm && (
               <form onSubmit={editingStudent ? handleUpdateStudent : handleCreateStudent} className="crud-form">
-                <h3>{editingStudent ? 'Edit Student' : 'Add New Student'}</h3>
+                <h3>{editingStudent ? 'Edit Student' : 'Add New Student Manually'}</h3>
                 <div className="form-group">
                   <label htmlFor="student-id">Student ID *</label>
                   <input
@@ -399,6 +437,43 @@ function TeacherCRUD() {
                   </button>
                 </div>
               </form>
+            )}
+
+            {/* File Upload Form */}
+            {showUploadForm && (
+              <div className="crud-form">
+                <h3>📁 Upload Students from File</h3>
+                <p className="upload-instructions">
+                  Upload a CSV or Excel file containing student data. 
+                  Required columns: <strong>student_id</strong>, <strong>name</strong>, <strong>email</strong>
+                  Optional: <strong>program</strong>
+                </p>
+                <div className="form-group">
+                  <label htmlFor="file-upload">Select File *</label>
+                  <input
+                    id="file-upload"
+                    type="file"
+                    accept=".csv,.xlsx,.xls"
+                    onChange={(e) => setUploadFile(e.target.files[0])}
+                  />
+                  {uploadFile && (
+                    <p className="file-info">Selected: <strong>{uploadFile.name}</strong></p>
+                  )}
+                </div>
+                <div className="form-actions">
+                  <button 
+                    type="button" 
+                    onClick={handleFileUpload}
+                    className="btn-primary"
+                    disabled={!uploadFile || loading}
+                  >
+                    {loading ? '⏳ Uploading...' : '📤 Upload Students'}
+                  </button>
+                  <button type="button" onClick={cancelForm} className="btn-secondary">
+                    Cancel
+                  </button>
+                </div>
+              </div>
             )}
 
             {/* Students List */}
@@ -567,6 +642,11 @@ function TeacherCRUD() {
           margin: 0;
           color: #333;
         }
+
+        .action-buttons {
+          display: flex;
+          gap: 0.5rem;
+        }
         
         .btn-primary {
           background: #667eea;
@@ -640,6 +720,21 @@ function TeacherCRUD() {
           display: flex;
           gap: 1rem;
           margin-top: 1.5rem;
+        }
+
+        .upload-instructions {
+          background: #e8f4fd;
+          padding: 1rem;
+          border-radius: 0.5rem;
+          margin-bottom: 1.5rem;
+          color: #0c5460;
+          font-size: 0.9rem;
+        }
+
+        .file-info {
+          margin-top: 0.5rem;
+          color: #28a745;
+          font-size: 0.9rem;
         }
         
         .crud-list {
