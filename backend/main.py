@@ -548,6 +548,167 @@ async def get_attendance_summary(
     }
 
 
+# ==================== CRUD OPERATIONS ====================
+
+# --- Course CRUD ---
+@app.post("/teacher/courses", tags=["Courses"])
+async def create_course(course: CourseCreate, db: Session = Depends(get_db), current_user: dict = Depends(get_current_teacher)):
+    """Create a new course"""
+    db_course = models.Course(
+        name=course.name,
+        code=course.code,
+        teacher_id=current_user["id"],
+        semester=course.semester,
+        description=course.description
+    )
+    db.add(db_course)
+    db.commit()
+    db.refresh(db_course)
+    
+    audit_log = models.AuditLog(
+        teacher_id=current_user["id"],
+        action="CREATE_COURSE",
+        details=f"Created course {db_course.code}"
+    )
+    db.add(audit_log)
+    db.commit()
+    
+    return {"message": "Course created successfully", "course": db_course}
+
+@app.get("/teacher/courses", response_model=List[CourseOut], tags=["Courses"])
+async def get_courses(db: Session = Depends(get_db), current_user: dict = Depends(get_current_teacher)):
+    """Get all courses for the logged-in teacher"""
+    courses = db.query(models.Course).filter(models.Course.teacher_id == current_user["id"]).all()
+    return courses
+
+@app.put("/teacher/courses/{course_id}", tags=["Courses"])
+async def update_course(course_id: int, course_update: CourseCreate, db: Session = Depends(get_db), current_user: dict = Depends(get_current_teacher)):
+    """Update a course"""
+    db_course = db.query(models.Course).filter(models.Course.id == course_id, models.Course.teacher_id == current_user["id"]).first()
+    if not db_course:
+        raise HTTPException(status_code=404, detail="Course not found")
+    
+    for key, value in course_update.dict().items():
+        setattr(db_course, key, value)
+    
+    db.commit()
+    db.refresh(db_course)
+    return {"message": "Course updated", "course": db_course}
+
+@app.delete("/teacher/courses/{course_id}", tags=["Courses"])
+async def delete_course(course_id: int, db: Session = Depends(get_db), current_user: dict = Depends(get_current_teacher)):
+    """Delete a course"""
+    db_course = db.query(models.Course).filter(models.Course.id == course_id, models.Course.teacher_id == current_user["id"]).first()
+    if not db_course:
+        raise HTTPException(status_code=404, detail="Course not found")
+    
+    db.query(models.Session).filter(models.Session.course_id == course_id).delete()
+    db.query(models.CourseEnrollment).filter(models.CourseEnrollment.course_id == course_id).delete()
+    
+    db.delete(db_course)
+    db.commit()
+    return {"message": "Course deleted"}
+
+# --- Student CRUD ---
+@app.post("/teacher/students", tags=["Students"])
+async def create_student(student: StudentCreate, db: Session = Depends(get_db), current_user: dict = Depends(get_current_teacher)):
+    """Manually add a single student"""
+    existing = db.query(models.Student).filter(models.Student.student_id == student.student_id).first()
+    if existing:
+        raise HTTPException(status_code=400, detail="Student ID already exists")
+    
+    qr_token = str(uuid.uuid4())
+    db_student = models.Student(
+        student_id=student.student_id,
+        name=student.name,
+        email=student.email,
+        qr_token=qr_token
+    )
+    db.add(db_student)
+    
+    if student.course_id:
+        enrollment = models.CourseEnrollment(student_id=db_student.id, course_id=student.course_id)
+        db.add(enrollment)
+    
+    db.commit()
+    db.refresh(db_student)
+    return {"message": "Student added", "student": db_student}
+
+@app.put("/teacher/students/{student_id}", tags=["Students"])
+async def update_student(student_id: int, student_update: StudentCreate, db: Session = Depends(get_db), current_user: dict = Depends(get_current_teacher)):
+    """Update student details"""
+    db_student = db.query(models.Student).filter(models.Student.id == student_id).first()
+    if not db_student:
+        raise HTTPException(status_code=404, detail="Student not found")
+    
+    if student_update.student_id != db_student.student_id:
+        existing = db.query(models.Student).filter(models.Student.student_id == student_update.student_id).first()
+        if existing:
+            raise HTTPException(status_code=400, detail="New Student ID already exists")
+    
+    for key, value in student_update.dict(exclude_unset=True).items():
+        if key != 'course_id':
+            setattr(db_student, key, value)
+    
+    if student_update.course_id:
+        exists = db.query(models.CourseEnrollment).filter(
+            models.CourseEnrollment.student_id == db_student.id,
+            models.CourseEnrollment.course_id == student_update.course_id
+        ).first()
+        if not exists:
+            db.add(models.CourseEnrollment(student_id=db_student.id, course_id=student_update.course_id))
+    
+    db.commit()
+    db.refresh(db_student)
+    return {"message": "Student updated", "student": db_student}
+
+@app.delete("/teacher/students/{student_id}", tags=["Students"])
+async def delete_student(student_id: int, db: Session = Depends(get_db), current_user: dict = Depends(get_current_teacher)):
+    """Delete a student"""
+    db_student = db.query(models.Student).filter(models.Student.id == student_id).first()
+    if not db_student:
+        raise HTTPException(status_code=404, detail="Student not found")
+    
+    db.query(models.CourseEnrollment).filter(models.CourseEnrollment.student_id == student_id).delete()
+    db.delete(db_student)
+    db.commit()
+    return {"message": "Student deleted"}
+
+# --- Session CRUD ---
+@app.put("/teacher/sessions/{session_id}", tags=["Sessions"])
+async def update_session(session_id: int, session_update: SessionCreate, db: Session = Depends(get_db), current_user: dict = Depends(get_current_teacher)):
+    """Update a session"""
+    db_session = db.query(models.Session).join(models.Course).filter(
+        models.Session.id == session_id,
+        models.Course.teacher_id == current_user["id"]
+    ).first()
+    
+    if not db_session:
+        raise HTTPException(status_code=404, detail="Session not found")
+    
+    for key, value in session_update.dict(exclude_unset=True).items():
+        setattr(db_session, key, value)
+    
+    db.commit()
+    db.refresh(db_session)
+    return {"message": "Session updated", "session": db_session}
+
+@app.delete("/teacher/sessions/{session_id}", tags=["Sessions"])
+async def delete_session(session_id: int, db: Session = Depends(get_db), current_user: dict = Depends(get_current_teacher)):
+    """Delete a session"""
+    db_session = db.query(models.Session).join(models.Course).filter(
+        models.Session.id == session_id,
+        models.Course.teacher_id == current_user["id"]
+    ).first()
+    
+    if not db_session:
+        raise HTTPException(status_code=404, detail="Session not found")
+    
+    db.delete(db_session)
+    db.commit()
+    return {"message": "Session deleted"}
+
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8080)
