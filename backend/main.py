@@ -140,6 +140,64 @@ class HealthResponse(BaseModel):
     timestamp: str
 
 
+# Pydantic models for CRUD operations
+class CourseCreate(BaseModel):
+    name: str
+    code: str
+    semester: Optional[str] = None
+    description: Optional[str] = None
+
+class CourseOut(BaseModel):
+    id: int
+    name: str
+    code: str
+    teacher_id: int
+    semester: Optional[str] = None
+    description: Optional[str] = None
+    
+    class Config:
+        from_attributes = True
+
+class StudentCreate(BaseModel):
+    student_id: str
+    name: str
+    email: str
+    program: Optional[str] = None
+
+class StudentOut(BaseModel):
+    id: int
+    student_id: str
+    name: str
+    email: str
+    program: Optional[str] = None
+    qr_token: str
+    active: bool = True
+    
+    class Config:
+        from_attributes = True
+
+class SessionCreate(BaseModel):
+    course_id: int
+    start_time: datetime
+    end_time: Optional[datetime] = None
+    geo_lat: Optional[float] = None
+    geo_lng: Optional[float] = None
+    geo_radius_meters: Optional[int] = None
+
+class SessionOut(BaseModel):
+    id: int
+    course_id: int
+    start_time: datetime
+    end_time: Optional[datetime] = None
+    status: str
+    geo_lat: Optional[float] = None
+    geo_lng: Optional[float] = None
+    geo_radius_meters: Optional[int] = None
+    
+    class Config:
+        from_attributes = True
+
+
 # Dependency to get DB session
 def get_db():
     db = SessionLocal()
@@ -149,6 +207,17 @@ def get_db():
     finally:
         db.close()
         DB_CONNECTIONS.dec()
+
+
+# Mock authentication for teacher (in production, use JWT tokens)
+async def get_current_teacher(request: Request):
+    """
+    Mock authentication - in production, validate JWT token from Authorization header.
+    For demo purposes, we accept a teacher_id from header or use default.
+    """
+    teacher_id = request.headers.get("X-Teacher-ID", "1")
+    # In production, validate token and fetch teacher from database
+    return {"id": int(teacher_id), "name": f"Teacher {teacher_id}"}
 
 
 @asynccontextmanager
