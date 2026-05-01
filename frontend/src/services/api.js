@@ -241,3 +241,25 @@ export async function deleteStudent(studentId) {
   
   return res.json();
 }
+
+/**
+ * Create a new student
+ * POST /api/teacher/students
+ */
+export async function createStudent(studentData) {
+  const res = await fetch(`${API_BASE_URL}/teacher/students`, {
+    method: 'POST',
+    headers: { 
+      'Content-Type': 'application/json',
+      'X-Teacher-ID': '1'
+    },
+    body: JSON.stringify(studentData)
+  });
+  
+  if (!res.ok) {
+    const error = await res.json().catch(() => ({ detail: 'Failed to create student' }));
+    throw new Error(error.detail || 'Failed to create student');
+  }
+  
+  return res.json();
+}

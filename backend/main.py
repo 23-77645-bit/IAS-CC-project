@@ -239,6 +239,7 @@ class StudentCreate(BaseModel):
     name: str
     email: str
     program: Optional[str] = None
+    course_id: Optional[int] = None
 
 class StudentOut(BaseModel):
     id: int
