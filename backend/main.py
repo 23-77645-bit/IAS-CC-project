@@ -17,7 +17,7 @@ from fastapi import FastAPI, HTTPException, Depends, Request, status, Response
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
-from sqlalchemy import create_engine, Column, Integer, String, Boolean, DateTime, Enum, Text, BIGINT, JSON, text
+from sqlalchemy import create_engine, Column, Integer, String, Boolean, DateTime, Enum, Text, BIGINT, JSON, text, ForeignKey, UniqueConstraint, Numeric
 from sqlalchemy.orm import sessionmaker, Session, declarative_base
 from prometheus_client import Counter, Histogram, Gauge, generate_latest, CONTENT_TYPE_LATEST
 import pymysql
@@ -68,15 +68,29 @@ SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
 
-# Database Models
+# Database Models - matching schema.sql exactly
+class Teacher(Base):
+    __tablename__ = 'teachers'
+    
+    id = Column(Integer, primary_key=True, index=True)
+    email = Column(String(255), unique=True, nullable=False, index=True)
+    name = Column(String(255), nullable=False)
+    password_hash = Column(String(255))
+    active = Column(Boolean, default=True, index=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
 class Student(Base):
     __tablename__ = 'students'
     
     id = Column(Integer, primary_key=True, index=True)
-    qr_id = Column(String(64), unique=True, nullable=False, index=True)
+    student_id = Column(String(50), nullable=False, index=True)
+    qr_token = Column(String(64), unique=True, nullable=False, index=True)
     name = Column(String(255), nullable=False)
+    email = Column(String(255), index=True)
     program = Column(String(100))
-    active = Column(Boolean, default=True, index=True)
+    is_active = Column(Boolean, default=True, index=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -85,12 +99,60 @@ class Attendance(Base):
     __tablename__ = 'attendance'
     
     id = Column(BIGINT, primary_key=True, index=True)
-    student_id = Column(Integer, nullable=False, index=True)
-    timestamp = Column(DateTime, default=datetime.utcnow, index=True)
-    status = Column(Enum('present', 'late', 'duplicate', 'invalid'), nullable=False, index=True)
-    source_device = Column(String(64))
-    session_id = Column(String(64), index=True)
+    session_id = Column(Integer, ForeignKey('sessions.id'), nullable=False, index=True)
+    student_id = Column(Integer, ForeignKey('students.id'), nullable=False, index=True)
+    scan_time = Column(DateTime, default=datetime.utcnow, index=True)
+    status = Column(Enum('present', 'late', 'absent', 'duplicate', 'invalid', 'manual'), nullable=False, index=True)
+    ip_address = Column(String(45))
+    device_id = Column(String(64))
+    latitude = Column(Numeric(10, 8))
+    longitude = Column(Numeric(11, 8))
     notes = Column(Text)
+    marked_by = Column(Integer, ForeignKey('teachers.id'))
+
+
+class Course(Base):
+    __tablename__ = 'courses'
+    
+    id = Column(Integer, primary_key=True, index=True)
+    teacher_id = Column(Integer, ForeignKey('teachers.id'), nullable=False, index=True)
+    course_code = Column(String(50), nullable=False, index=True)
+    course_name = Column(String(255), nullable=False)
+    section = Column(String(50))
+    semester = Column(String(50))
+    active = Column(Boolean, default=True, index=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class CourseEnrollment(Base):
+    __tablename__ = 'course_enrollments'
+    
+    id = Column(Integer, primary_key=True, index=True)
+    course_id = Column(Integer, ForeignKey('courses.id'), nullable=False, index=True)
+    student_id = Column(Integer, ForeignKey('students.id'), nullable=False, index=True)
+    enrolled_at = Column(DateTime, default=datetime.utcnow)
+    status = Column(Enum('enrolled', 'dropped', 'completed'), default='enrolled')
+    __table_args__ = (UniqueConstraint('course_id', 'student_id', name='unique_enrollment'),)
+
+
+class Session(Base):
+    __tablename__ = 'sessions'
+    
+    id = Column(Integer, primary_key=True, index=True)
+    course_id = Column(Integer, ForeignKey('courses.id'), nullable=False, index=True)
+    session_code = Column(String(64), unique=True, nullable=False, index=True)
+    start_time = Column(DateTime, nullable=False, index=True)
+    end_time = Column(DateTime, index=True)
+    status = Column(Enum('scheduled', 'active', 'closed', 'cancelled'), default='scheduled', index=True)
+    late_threshold_minutes = Column(Integer, default=15)
+    scan_window_minutes = Column(Integer, default=20)
+    geo_fence_enabled = Column(Boolean, default=False)
+    geo_fence_lat = Column(Numeric(10, 8))
+    geo_fence_lng = Column(Numeric(11, 8))
+    geo_fence_radius_meters = Column(Integer, default=100)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    closed_at = Column(DateTime)
 
 
 class ScanRequest(Base):
@@ -101,6 +163,20 @@ class ScanRequest(Base):
     student_id = Column(Integer, nullable=False)
     processed_at = Column(DateTime, default=datetime.utcnow, index=True)
     response_status = Column(String(32))
+
+
+class AuditLog(Base):
+    __tablename__ = 'audit_log'
+    
+    id = Column(BIGINT, primary_key=True, index=True)
+    action = Column(String(64), nullable=False)
+    entity_type = Column(String(32))
+    entity_id = Column(BIGINT)
+    old_value = Column(JSON)
+    new_value = Column(JSON)
+    performed_by = Column(Integer, ForeignKey('teachers.id'))
+    performed_at = Column(DateTime, default=datetime.utcnow)
+    ip_address = Column(String(45))
 
 
 class Config(Base):
@@ -424,7 +500,7 @@ async def scan_qr(
         )
     
     # Lookup student by QR ID
-    student = db.query(Student).filter(Student.qr_id == qr_id).first()
+    student = db.query(Student).filter(Student.qr_token == qr_id).first()
     
     if not student:
         # Invalid QR - student not found
@@ -446,7 +522,7 @@ async def scan_qr(
         )
     
     # Check if student is active
-    if not student.active:
+    if not student.is_active:
         scan_record = ScanRequest(
             request_id=request_id,
             student_id=student.id,
@@ -470,7 +546,7 @@ async def scan_qr(
     
     recent_attendance = db.query(Attendance).filter(
         Attendance.student_id == student.id,
-        Attendance.timestamp > datetime.utcnow() - duplicate_window,
+        Attendance.scan_time > datetime.utcnow() - duplicate_window,
         Attendance.status.in_(['present', 'late'])
     ).first()
     
@@ -564,17 +640,17 @@ async def get_student_attendance(
     cutoff_date = datetime.utcnow() - timedelta(days=days)
     records = db.query(Attendance).filter(
         Attendance.student_id == student_id,
-        Attendance.timestamp > cutoff_date
-    ).order_by(Attendance.timestamp.desc()).all()
+        Attendance.scan_time > cutoff_date
+    ).order_by(Attendance.scan_time.desc()).all()
     
     return {
         "student": StudentInfo(id=student.id, name=student.name, program=student.program),
         "attendance": [
             {
                 "id": r.id,
-                "timestamp": r.timestamp.isoformat() + "Z",
+                "timestamp": r.scan_time.isoformat() + "Z",
                 "status": r.status,
-                "source_device": r.source_device
+                "source_device": r.device_id or ""
             }
             for r in records
         ]
@@ -604,7 +680,7 @@ async def get_attendance_summary(
         func.SUM(func.IF(Attendance.status == 'duplicate', 1, 0)).label('duplicate'),
         func.SUM(func.IF(Attendance.status == 'invalid', 1, 0)).label('invalid')
     ).filter(
-        func.DATE(Attendance.timestamp) == target_date
+        func.DATE(Attendance.scan_time) == target_date
     ).first()
     
     return {
@@ -617,27 +693,302 @@ async def get_attendance_summary(
     }
 
 
+# ==================== TEACHER DASHBOARD ENDPOINTS ====================
+
+@app.get("/teacher/dashboard/summary", tags=["Dashboard"])
+async def get_teacher_dashboard_summary(
+    date: Optional[str] = None,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_teacher)
+):
+    """Get attendance summary for teacher's courses on a specific date."""
+    if date:
+        try:
+            target_date = datetime.fromisoformat(date).date()
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid date format. Use YYYY-MM-DD")
+    else:
+        target_date = datetime.utcnow().date()
+    
+    from sqlalchemy import func
+    
+    # Get all sessions for teacher's courses on this date
+    session_ids = db.query(Session.id).join(Course).filter(
+        Course.teacher_id == current_user["id"],
+        func.DATE(Session.start_time) == target_date
+    ).all()
+    session_ids = [s[0] for s in session_ids]
+    
+    # Count enrolled students in teacher's courses
+    total_students = db.query(func.COUNT(func.DISTINCT(CourseEnrollment.student_id))).join(
+        Course, CourseEnrollment.course_id == Course.id
+    ).filter(
+        Course.teacher_id == current_user["id"],
+        CourseEnrollment.status == 'enrolled'
+    ).scalar() or 0
+    
+    if not session_ids:
+        return {
+            "date": target_date.isoformat(),
+            "total_students": total_students,
+            "present": 0,
+            "late": 0,
+            "absent": total_students,
+            "percentage": 0
+        }
+    
+    # Count attendance by status
+    summary = db.query(
+        func.SUM(func.IF(Attendance.status == 'present', 1, 0)).label('present'),
+        func.SUM(func.IF(Attendance.status == 'late', 1, 0)).label('late'),
+        func.SUM(func.IF(Attendance.status == 'absent', 1, 0)).label('absent'),
+        func.SUM(func.IF(Attendance.status == 'manual', 1, 0)).label('manual'),
+    ).filter(
+        Attendance.session_id.in_(session_ids)
+    ).first()
+    
+    present = int(summary.present or 0)
+    late = int(summary.late or 0)
+    marked = present + late
+    absent = total_students - marked
+    
+    return {
+        "date": target_date.isoformat(),
+        "total_students": total_students,
+        "present": present,
+        "late": late,
+        "absent": absent,
+        "percentage": round(((present + late) / total_students * 100) if total_students > 0 else 0)
+    }
+
+
+@app.get("/teacher/students", tags=["Students"])
+async def get_students(
+    course_id: Optional[int] = None,
+    search: Optional[str] = None,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_teacher)
+):
+    """Get students enrolled in teacher's courses with optional filtering."""
+    query = db.query(Student).join(CourseEnrollment).join(Course).filter(
+        Course.teacher_id == current_user["id"],
+        CourseEnrollment.status == 'enrolled',
+        Student.is_active == True
+    )
+    
+    if course_id:
+        query = query.filter(CourseEnrollment.course_id == course_id)
+    
+    if search:
+        search_term = f"%{search}%"
+        query = query.filter(
+            (Student.name.like(search_term)) | 
+            (Student.student_id.like(search_term)) |
+            (Student.email.like(search_term))
+        )
+    
+    students = query.all()
+    return [{
+        "id": s.id,
+        "student_id": s.student_id,
+        "name": s.name,
+        "email": s.email,
+        "program": s.program,
+        "qr_token": s.qr_token,
+        "active": s.is_active
+    } for s in students]
+
+
+@app.get("/teacher/attendance/today", tags=["Attendance"])
+async def get_today_attendance(
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_teacher)
+):
+    """Get today's attendance records for teacher's courses."""
+    today = datetime.utcnow().date()
+    
+    # Get today's sessions
+    sessions = db.query(Session).join(Course).filter(
+        Course.teacher_id == current_user["id"],
+        func.DATE(Session.start_time) == today
+    ).all()
+    
+    session_ids = [s.id for s in sessions]
+    
+    if not session_ids:
+        return []
+    
+    # Get attendance records
+    records = db.query(Attendance, Student).join(
+        Student, Attendance.student_id == Student.id
+    ).filter(
+        Attendance.session_id.in_(session_ids)
+    ).all()
+    
+    return [{
+        "id": r.Attendance.id,
+        "student_id": r.Student.student_id,
+        "student_name": r.Student.name,
+        "status": r.Attendance.status,
+        "scan_time": r.Attendance.scan_time.isoformat() if r.Attendance.scan_time else None,
+        "note": r.Attendance.notes or ""
+    } for r in records]
+
+
+@app.post("/teacher/attendance/mark", tags=["Attendance"])
+async def mark_attendance_manual(
+    request_data: dict,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_teacher)
+):
+    """Manually mark or override attendance for a student."""
+    student_id = request_data.get("student_id")
+    status = request_data.get("status")
+    session_id = request_data.get("session_id")
+    note = request_data.get("note", "")
+    
+    if not all([student_id, status, session_id]):
+        raise HTTPException(status_code=400, detail="Missing required fields: student_id, session_id, status")
+    
+    if status not in ['present', 'late', 'absent', 'manual']:
+        raise HTTPException(status_code=400, detail="Invalid status. Must be: present, late, absent, or manual")
+    
+    # Verify session belongs to teacher
+    session = db.query(Session).join(Course).filter(
+        Session.id == session_id,
+        Course.teacher_id == current_user["id"]
+    ).first()
+    
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+    
+    # Check if attendance already exists
+    existing = db.query(Attendance).filter(
+        Attendance.session_id == session_id,
+        Attendance.student_id == student_id
+    ).first()
+    
+    if existing:
+        existing.status = status
+        existing.notes = note
+        existing.marked_by = current_user["id"]
+        record_id = existing.id
+    else:
+        new_record = Attendance(
+            session_id=session_id,
+            student_id=student_id,
+            status=status,
+            notes=note,
+            marked_by=current_user["id"],
+            scan_time=datetime.utcnow()
+        )
+        db.add(new_record)
+        db.commit()
+        db.refresh(new_record)
+        record_id = new_record.id
+    
+    # Log audit
+    audit = AuditLog(
+        action="MANUAL_ATTENDANCE",
+        entity_type="attendance",
+        entity_id=record_id,
+        performed_by=current_user["id"],
+        new_value={"student_id": student_id, "status": status, "note": note}
+    )
+    db.add(audit)
+    db.commit()
+    
+    return {"success": True, "message": "Attendance marked successfully"}
+
+
+@app.get("/teacher/attendance/export", tags=["Attendance"])
+async def export_attendance_csv(
+    date: Optional[str] = None,
+    course_id: Optional[int] = None,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_teacher)
+):
+    """Export attendance data as CSV."""
+    import csv
+    import io
+    
+    if date:
+        try:
+            target_date = datetime.fromisoformat(date).date()
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid date format")
+    else:
+        target_date = datetime.utcnow().date()
+    
+    # Build query
+    query = db.query(
+        Student.student_id,
+        Student.name,
+        Student.program,
+        Student.email,
+        Attendance.status,
+        Attendance.scan_time,
+        Attendance.notes,
+        Course.course_code,
+        Session.session_code
+    ).join(
+        CourseEnrollment, Student.id == CourseEnrollment.student_id
+    ).join(
+        Course, CourseEnrollment.course_id == Course.id
+    ).join(
+        Session, Session.course_id == Course.id
+    ).join(
+        Attendance, (Attendance.session_id == Session.id) & (Attendance.student_id == Student.id)
+    ).filter(
+        Course.teacher_id == current_user["id"],
+        func.DATE(Session.start_time) == target_date
+    )
+    
+    if course_id:
+        query = query.filter(Course.id == course_id)
+    
+    records = query.all()
+    
+    # Generate CSV
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(['Course', 'Session', 'Student ID', 'Name', 'Program', 'Email', 'Status', 'Timestamp', 'Notes'])
+    
+    for r in records:
+        writer.writerow([
+            r.course_code, r.session_code, r.student_id, r.name, r.program, r.email,
+            r.status, r.scan_time.isoformat() if r.scan_time else '', r.notes or ''
+        ])
+    
+    return Response(
+        content=output.getvalue(),
+        media_type="text/csv",
+        headers={"Content-Disposition": f"attachment; filename=attendance-{target_date}.csv"}
+    )
+
+
 # ==================== CRUD OPERATIONS ====================
 
 # --- Course CRUD ---
 @app.post("/teacher/courses", tags=["Courses"])
 async def create_course(course: CourseCreate, db: Session = Depends(get_db), current_user: dict = Depends(get_current_teacher)):
     """Create a new course"""
-    db_course = models.Course(
-        name=course.name,
-        code=course.code,
+    db_course = Course(
+        course_code=course.code,
+        course_name=course.name,
         teacher_id=current_user["id"],
         semester=course.semester,
-        description=course.description
     )
     db.add(db_course)
     db.commit()
     db.refresh(db_course)
     
-    audit_log = models.AuditLog(
-        teacher_id=current_user["id"],
+    audit_log = AuditLog(
         action="CREATE_COURSE",
-        details=f"Created course {db_course.code}"
+        entity_type="course",
+        entity_id=db_course.id,
+        performed_by=current_user["id"],
+        new_value={"code": course.code, "name": course.name}
     )
     db.add(audit_log)
     db.commit()
@@ -647,13 +998,13 @@ async def create_course(course: CourseCreate, db: Session = Depends(get_db), cur
 @app.get("/teacher/courses", response_model=List[CourseOut], tags=["Courses"])
 async def get_courses(db: Session = Depends(get_db), current_user: dict = Depends(get_current_teacher)):
     """Get all courses for the logged-in teacher"""
-    courses = db.query(models.Course).filter(models.Course.teacher_id == current_user["id"]).all()
+    courses = db.query(Course).filter(Course.teacher_id == current_user["id"]).all()
     return courses
 
 @app.put("/teacher/courses/{course_id}", tags=["Courses"])
 async def update_course(course_id: int, course_update: CourseCreate, db: Session = Depends(get_db), current_user: dict = Depends(get_current_teacher)):
     """Update a course"""
-    db_course = db.query(models.Course).filter(models.Course.id == course_id, models.Course.teacher_id == current_user["id"]).first()
+    db_course = db.query(Course).filter(Course.id == course_id, Course.teacher_id == current_user["id"]).first()
     if not db_course:
         raise HTTPException(status_code=404, detail="Course not found")
     
@@ -667,12 +1018,12 @@ async def update_course(course_id: int, course_update: CourseCreate, db: Session
 @app.delete("/teacher/courses/{course_id}", tags=["Courses"])
 async def delete_course(course_id: int, db: Session = Depends(get_db), current_user: dict = Depends(get_current_teacher)):
     """Delete a course"""
-    db_course = db.query(models.Course).filter(models.Course.id == course_id, models.Course.teacher_id == current_user["id"]).first()
+    db_course = db.query(Course).filter(Course.id == course_id, Course.teacher_id == current_user["id"]).first()
     if not db_course:
         raise HTTPException(status_code=404, detail="Course not found")
     
-    db.query(models.Session).filter(models.Session.course_id == course_id).delete()
-    db.query(models.CourseEnrollment).filter(models.CourseEnrollment.course_id == course_id).delete()
+    db.query(Session).filter(Session.course_id == course_id).delete()
+    db.query(CourseEnrollment).filter(CourseEnrollment.course_id == course_id).delete()
     
     db.delete(db_course)
     db.commit()
@@ -682,12 +1033,12 @@ async def delete_course(course_id: int, db: Session = Depends(get_db), current_u
 @app.post("/teacher/students", tags=["Students"])
 async def create_student(student: StudentCreate, db: Session = Depends(get_db), current_user: dict = Depends(get_current_teacher)):
     """Manually add a single student"""
-    existing = db.query(models.Student).filter(models.Student.student_id == student.student_id).first()
+    existing = db.query(Student).filter(Student.student_id == student.student_id).first()
     if existing:
         raise HTTPException(status_code=400, detail="Student ID already exists")
     
     qr_token = str(uuid.uuid4())
-    db_student = models.Student(
+    db_student = Student(
         student_id=student.student_id,
         name=student.name,
         email=student.email,
@@ -696,7 +1047,7 @@ async def create_student(student: StudentCreate, db: Session = Depends(get_db), 
     db.add(db_student)
     
     if student.course_id:
-        enrollment = models.CourseEnrollment(student_id=db_student.id, course_id=student.course_id)
+        enrollment = CourseEnrollment(student_id=db_student.id, course_id=student.course_id)
         db.add(enrollment)
     
     db.commit()
@@ -706,12 +1057,12 @@ async def create_student(student: StudentCreate, db: Session = Depends(get_db), 
 @app.put("/teacher/students/{student_id}", tags=["Students"])
 async def update_student(student_id: int, student_update: StudentCreate, db: Session = Depends(get_db), current_user: dict = Depends(get_current_teacher)):
     """Update student details"""
-    db_student = db.query(models.Student).filter(models.Student.id == student_id).first()
+    db_student = db.query(Student).filter(Student.id == student_id).first()
     if not db_student:
         raise HTTPException(status_code=404, detail="Student not found")
     
     if student_update.student_id != db_student.student_id:
-        existing = db.query(models.Student).filter(models.Student.student_id == student_update.student_id).first()
+        existing = db.query(Student).filter(Student.student_id == student_update.student_id).first()
         if existing:
             raise HTTPException(status_code=400, detail="New Student ID already exists")
     
@@ -720,12 +1071,12 @@ async def update_student(student_id: int, student_update: StudentCreate, db: Ses
             setattr(db_student, key, value)
     
     if student_update.course_id:
-        exists = db.query(models.CourseEnrollment).filter(
-            models.CourseEnrollment.student_id == db_student.id,
-            models.CourseEnrollment.course_id == student_update.course_id
+        exists = db.query(CourseEnrollment).filter(
+            CourseEnrollment.student_id == db_student.id,
+            CourseEnrollment.course_id == student_update.course_id
         ).first()
         if not exists:
-            db.add(models.CourseEnrollment(student_id=db_student.id, course_id=student_update.course_id))
+            db.add(CourseEnrollment(student_id=db_student.id, course_id=student_update.course_id))
     
     db.commit()
     db.refresh(db_student)
@@ -734,11 +1085,11 @@ async def update_student(student_id: int, student_update: StudentCreate, db: Ses
 @app.delete("/teacher/students/{student_id}", tags=["Students"])
 async def delete_student(student_id: int, db: Session = Depends(get_db), current_user: dict = Depends(get_current_teacher)):
     """Delete a student"""
-    db_student = db.query(models.Student).filter(models.Student.id == student_id).first()
+    db_student = db.query(Student).filter(Student.id == student_id).first()
     if not db_student:
         raise HTTPException(status_code=404, detail="Student not found")
     
-    db.query(models.CourseEnrollment).filter(models.CourseEnrollment.student_id == student_id).delete()
+    db.query(CourseEnrollment).filter(CourseEnrollment.student_id == student_id).delete()
     db.delete(db_student)
     db.commit()
     return {"message": "Student deleted"}
@@ -747,9 +1098,9 @@ async def delete_student(student_id: int, db: Session = Depends(get_db), current
 @app.put("/teacher/sessions/{session_id}", tags=["Sessions"])
 async def update_session(session_id: int, session_update: SessionCreate, db: Session = Depends(get_db), current_user: dict = Depends(get_current_teacher)):
     """Update a session"""
-    db_session = db.query(models.Session).join(models.Course).filter(
-        models.Session.id == session_id,
-        models.Course.teacher_id == current_user["id"]
+    db_session = db.query(Session).join(Course).filter(
+        Session.id == session_id,
+        Course.teacher_id == current_user["id"]
     ).first()
     
     if not db_session:
@@ -765,9 +1116,9 @@ async def update_session(session_id: int, session_update: SessionCreate, db: Ses
 @app.delete("/teacher/sessions/{session_id}", tags=["Sessions"])
 async def delete_session(session_id: int, db: Session = Depends(get_db), current_user: dict = Depends(get_current_teacher)):
     """Delete a session"""
-    db_session = db.query(models.Session).join(models.Course).filter(
-        models.Session.id == session_id,
-        models.Course.teacher_id == current_user["id"]
+    db_session = db.query(Session).join(Course).filter(
+        Session.id == session_id,
+        Course.teacher_id == current_user["id"]
     ).first()
     
     if not db_session:
