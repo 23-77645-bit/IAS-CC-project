@@ -2,7 +2,6 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import { BrowserMultiFormatReader } from '@zxing/library'
 import { BrowserRouter as Router, Routes, Route, Link } from 'react-router-dom'
 import TeacherDashboard from './pages/TeacherDashboard'
-import TeacherDashboardMinimal from './pages/TeacherDashboardMinimal'
 import './styles/TeacherDashboard.css'
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || '/api'
@@ -478,13 +477,11 @@ function App() {
       <div className="app-container">
         <nav className="main-nav">
           <Link to="/" className="nav-link">📷 Scanner</Link>
-          <Link to="/teacher" className="nav-link">👨‍🏫 Teacher Dashboard</Link>
-          <Link to="/teacher-minimal" className="nav-link">✨ Minimal Dashboard</Link>
+          <Link to="/teacher" className="nav-link">✨ Teacher Dashboard</Link>
         </nav>
         <Routes>
           <Route path="/" element={<ScannerApp />} />
           <Route path="/teacher" element={<TeacherDashboard />} />
-          <Route path="/teacher-minimal" element={<TeacherDashboardMinimal />} />
         </Routes>
       </div>
       <style jsx global>{`
