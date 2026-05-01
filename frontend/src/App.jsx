@@ -1,5 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { BrowserMultiFormatReader } from '@zxing/library'
+import { BrowserRouter as Router, Routes, Route, Link } from 'react-router-dom'
+import TeacherDashboard from './pages/TeacherDashboard'
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || '/api'
 
@@ -13,7 +15,7 @@ const statusStyles = {
   error: { bg: 'bg-orange-100', text: 'text-orange-600', icon: '🔄' },
 }
 
-function App() {
+function ScannerApp() {
   const [scannerStatus, setScannerStatus] = useState('idle')
   const [lastScan, setLastScan] = useState(null)
   const [scanHistory, setScanHistory] = useState([])
@@ -464,6 +466,46 @@ function App() {
         }
       `}</style>
     </div>
+  )
+}
+
+// Main App with routing
+function App() {
+  return (
+    <Router>
+      <div className="app-container">
+        <nav className="main-nav">
+          <Link to="/" className="nav-link">📷 Scanner</Link>
+          <Link to="/teacher" className="nav-link">👨‍🏫 Teacher Dashboard</Link>
+        </nav>
+        <Routes>
+          <Route path="/" element={<ScannerApp />} />
+          <Route path="/teacher" element={<TeacherDashboard />} />
+        </Routes>
+      </div>
+      <style jsx global>{`
+        .app-container {
+          min-height: 100vh;
+        }
+        .main-nav {
+          background: #2563eb;
+          padding: 1rem 2rem;
+          display: flex;
+          gap: 2rem;
+        }
+        .nav-link {
+          color: white;
+          text-decoration: none;
+          font-weight: 600;
+          padding: 0.5rem 1rem;
+          border-radius: 0.5rem;
+          transition: background 0.2s;
+        }
+        .nav-link:hover {
+          background: rgba(255, 255, 255, 0.2);
+        }
+      `}</style>
+    </Router>
   )
 }
 
