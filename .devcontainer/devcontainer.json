@@ -1,9 +1,12 @@
 {
   "name": "Attendance Management System",
-  "image": "mcr.microsoft.com/devcontainers/python:3.11",
+  "image": "mcr.microsoft.com/devcontainers/python:3.11-bookworm",
   "workspaceFolder": "/workspaces/${localWorkspaceFolderBasename}",
   "features": {
-    "ghcr.io/devcontainers/features/docker-in-docker:2": {},
+    "ghcr.io/devcontainers/features/docker-in-docker:2": {
+      "version": "latest",
+      "dockerDashComposeVersion": "v2"
+    },
     "ghcr.io/devcontainers/features/node:1": {
       "version": "18"
     }
