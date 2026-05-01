@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   # Frontend - QR Scanner UI
   frontend:
@@ -76,11 +74,11 @@ services:
       - attendance-network
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "--password=${MYSQL_ROOT_PASSWORD:-R00tP@ssw0rd2024!}"]
+      test: ["CMD-SHELL", "mysqladmin ping -h localhost -u root -p${MYSQL_ROOT_PASSWORD:-R00tP@ssw0rd2024!}"]
       interval: 30s
       timeout: 10s
       retries: 5
-      start_period: 60s
+      start_period: 90s
     command: >
       mysqld
       --character-set-server=utf8mb4
